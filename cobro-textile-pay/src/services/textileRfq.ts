@@ -57,7 +57,7 @@ export interface FirmQuoteResponse {
   };
 }
 
-const TEXTILE_API_BASE = "https://api.textilecredit.com/v2";
+const BACKEND_API_BASE = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:4000";
 
 /**
  * Service to interact directly with Textile FX v2 RFQ on Celo.
@@ -74,7 +74,7 @@ export class TextileRfqService {
    */
   async getPreview(params: PreviewRequest): Promise<PreviewResponse> {
     try {
-      const response = await fetch(`${TEXTILE_API_BASE}/rfq/preview`, {
+      const response = await fetch(`${BACKEND_API_BASE}/api/rfq/preview`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(params),
@@ -105,7 +105,7 @@ export class TextileRfqService {
         headers["Authorization"] = `Bearer ${this.apiKey}`;
       }
 
-      const response = await fetch(`${TEXTILE_API_BASE}/rfq/request`, {
+      const response = await fetch(`${BACKEND_API_BASE}/api/rfq/request`, {
         method: "POST",
         headers,
         body: JSON.stringify(params),
@@ -128,7 +128,7 @@ export class TextileRfqService {
    */
   async submitTransaction(quoteId: string, txHash: string): Promise<boolean> {
     try {
-      const response = await fetch(`${TEXTILE_API_BASE}/rfq/${quoteId}/submit`, {
+      const response = await fetch(`${BACKEND_API_BASE}/api/rfq/${encodeURIComponent(quoteId)}/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ txHash }),

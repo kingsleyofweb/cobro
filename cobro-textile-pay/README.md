@@ -122,7 +122,36 @@ Standard `LimitOrderReactor.execute(...)` delivers the purchased tokens to `msg.
 
 ---
 
-## 6. Running the Next.js Production Build
+## 6. Separate frontend and backend deployment
+
+The repository is split into two independently hosted applications:
+
+- `cobro-textile-pay/` is the Next.js frontend.
+- `backend/` is the Express API server and the only service that talks to Textile's private RFQ API.
+
+Run the backend from the repository root:
+
+```bash
+cd backend
+npm install
+copy .env.example .env
+npm run dev
+```
+
+Run the frontend separately:
+
+```bash
+cd cobro-textile-pay
+npm install
+copy .env.example .env.local
+npm run dev
+```
+
+Set `NEXT_PUBLIC_BACKEND_URL` in the frontend environment and `FRONTEND_ORIGIN`, `PORT`, and `TEXTILE_API_KEY` in the backend environment. In production, host the frontend and backend on separate domains and set CORS accordingly.
+
+The frontend no longer contains Next.js API routes. RFQ requests are sent to the Express endpoints `/api/rfq/preview`, `/api/rfq/request`, and `/api/rfq/:quoteId/submit`.
+
+## 7. Running the Next.js production build
 
 Once Node.js is installed on your machine:
 ```bash
