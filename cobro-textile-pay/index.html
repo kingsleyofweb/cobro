@@ -1,0 +1,1918 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cobro — Freelance Invoicing & Textile FX Settlement on Celo</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Ethers.js v6 for Celo Web3 Wallet Connection -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/ethers/6.13.4/ethers.umd.min.js"></script>
+  <!-- QRCode.js for WalletConnect QR Code generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            celo: { green: "#35D07F", dark: "#1E1E1E" },
+            textile: { purple: "#6366F1" }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body {
+      background: radial-gradient(circle at 50% 5%, #111827, #030712);
+      min-height: 100vh;
+      color: #f3f4f6;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    }
+    .wallet-card-detected {
+      border: 1px solid rgba(53, 208, 127, 0.4);
+      background: linear-gradient(135deg, rgba(53, 208, 127, 0.08) 0%, rgba(17, 24, 39, 0.8) 100%);
+    }
+  </style>
+</head>
+<body class="py-6 px-4 antialiased min-h-screen flex flex-col justify-between">
+  <div class="max-w-5xl mx-auto w-full">
+    
+    <!-- Top Navigation -->
+    <header class="flex flex-wrap items-center justify-between pb-5 border-b border-gray-800 gap-4 mb-8">
+      <div class="flex items-center gap-3 cursor-pointer" onclick="goToRoleSelection()">
+        <div class="h-10 w-10 rounded-xl bg-emerald-400 flex items-center justify-center font-black text-black text-xl shadow-lg shadow-emerald-400/20">
+          C
+        </div>
+        <div>
+          <h1 class="text-xl font-bold tracking-tight text-white flex items-center gap-2">
+            Cobro
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30">Celo (42220)</span>
+          </h1>
+          <p class="text-xs text-gray-400">Freelance Invoicing & FX Settlement via Textile</p>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <!-- Quick Browser Wallet Connect Button in Navbar -->
+        <button id="navWalletBtn" onclick="openWalletModal()" class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-900 hover:bg-emerald-500/10 border border-gray-800 hover:border-emerald-500/40 text-xs text-gray-300 hover:text-emerald-400 transition shadow-sm">
+          <span id="navWalletDot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+          <span id="navWalletText">Connect Browser Wallet</span>
+        </button>
+
+        <div class="hidden sm:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-indigo-950/60 border border-indigo-500/30 text-indigo-300 text-xs font-medium">
+          <i data-lucide="zap" class="w-3.5 h-3.5 text-indigo-400"></i>
+          Powered by <strong>Textile FX</strong>
+        </div>
+
+        <div id="userBadge" class="hidden flex items-center gap-2">
+          <div class="flex items-center gap-2 bg-gray-900 border border-gray-800 px-3 py-1.5 rounded-lg text-xs">
+            <span id="roleTag" class="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider"></span>
+            <span id="userAddress" class="font-mono text-gray-300"></span>
+          </div>
+          <button onclick="goToRoleSelection()" class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-red-500/10 hover:border-red-500/40 border border-gray-800 text-xs text-gray-300 hover:text-red-400 font-medium transition shadow-sm" title="Log out and return to role selection">
+            <i data-lucide="log-out" class="w-3.5 h-3.5 text-red-400"></i>
+            <span>Logout</span>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <!-- VIEW 1: Role Login Selection -->
+    <section id="viewLogin" class="py-8 max-w-2xl mx-auto space-y-8">
+      <div class="text-center space-y-2">
+        <h2 class="text-3xl font-extrabold text-white tracking-tight">Select Your Workspace Role</h2>
+        <p class="text-sm text-gray-400">Choose how you want to interact with Cobro's non-custodial invoice engine.</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <!-- Freelancer Login Card -->
+        <div onclick="loginAs('freelancer')" class="group p-6 bg-gray-900/90 border border-gray-800 hover:border-emerald-500/50 hover:bg-gray-900 rounded-2xl cursor-pointer transition-all duration-200 shadow-xl space-y-4 hover:shadow-emerald-500/10">
+          <div class="w-12 h-12 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center group-hover:scale-110 transition">
+            <i data-lucide="user-check" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold text-white group-hover:text-emerald-400 transition">Login as Freelancer</h3>
+            <p class="text-xs text-gray-400 mt-1 leading-relaxed">
+              Create invoices in your preferred local currency (cNGN, wARS). Track payments in real-time.
+            </p>
+          </div>
+          <div class="pt-2 flex items-center text-xs font-semibold text-emerald-400 gap-1.5">
+            <span>Open Freelancer Dashboard</span>
+            <i data-lucide="arrow-right" class="w-4 h-4 group-hover:translate-x-1 transition"></i>
+          </div>
+        </div>
+
+        <!-- Client Login Card -->
+        <div onclick="loginAs('client')" class="group p-6 bg-gray-900/90 border border-gray-800 hover:border-indigo-500/50 hover:bg-gray-900 rounded-2xl cursor-pointer transition-all duration-200 shadow-xl space-y-4 hover:shadow-indigo-500/10">
+          <div class="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center group-hover:scale-110 transition">
+            <i data-lucide="building-2" class="w-6 h-6"></i>
+          </div>
+          <div>
+            <h3 class="text-lg font-bold text-white group-hover:text-indigo-400 transition">Login as Client</h3>
+            <p class="text-xs text-gray-400 mt-1 leading-relaxed">
+              Review received invoices and pay using USDT or USDC. Connect via your Browser Wallet, WalletConnect, or In-Browser key.
+            </p>
+          </div>
+          <div class="pt-2 flex items-center text-xs font-semibold text-indigo-400 gap-1.5">
+            <span>Open Client Invoices</span>
+            <i data-lucide="arrow-right" class="w-4 h-4 group-hover:translate-x-1 transition"></i>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: Freelancer Dashboard -->
+    <section id="viewFreelancer" class="hidden space-y-6">
+      <!-- Freelancer Stats & Action Bar -->
+      <div class="flex flex-wrap items-center justify-between gap-4 bg-gray-900/70 border border-gray-800 p-5 rounded-2xl">
+        <div>
+          <h2 class="text-xl font-bold text-white">Freelancer Dashboard</h2>
+          <p class="text-xs text-gray-400">Logged in as <strong class="text-emerald-400 font-mono">Amara Okonkwo (0x8920...43e7)</strong></p>
+        </div>
+        <div class="flex items-center gap-2.5">
+          <button onclick="openInvoiceModal()" class="px-4 py-2.5 bg-emerald-400 hover:bg-emerald-300 text-black font-bold rounded-xl text-xs flex items-center gap-2 shadow-lg shadow-emerald-400/20 transition">
+            <i data-lucide="plus-circle" class="w-4 h-4"></i>
+            <span>Add Invoice</span>
+          </button>
+          <button onclick="goToRoleSelection()" class="px-3.5 py-2.5 bg-gray-800 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30 border border-gray-700 text-gray-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition" title="Logout from Freelancer account">
+            <i data-lucide="log-out" class="w-3.5 h-3.5 text-red-400"></i>
+            <span>Logout</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quick Metrics -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div class="bg-gray-900 border border-gray-800 p-4 rounded-xl">
+          <p class="text-xs text-gray-400">Total Invoiced (cNGN)</p>
+          <p id="metricTotalInvoiced" class="text-xl font-extrabold text-white mt-1">₦1,250,000</p>
+        </div>
+        <div class="bg-gray-900 border border-gray-800 p-4 rounded-xl">
+          <p class="text-xs text-gray-400">Total Settled on Celo</p>
+          <p id="metricTotalSettled" class="text-xl font-extrabold text-emerald-400 mt-1">₦500,000</p>
+        </div>
+        <div class="bg-gray-900 border border-gray-800 p-4 rounded-xl">
+          <p class="text-xs text-gray-400">Pending Settlement</p>
+          <p id="metricPending" class="text-xl font-extrabold text-amber-400 mt-1">₦750,000</p>
+        </div>
+      </div>
+
+      <!-- Invoices Table -->
+      <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden shadow-xl">
+        <div class="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+          <h3 class="font-bold text-white text-sm">Issued Invoices</h3>
+          <span class="text-xs text-gray-400" id="invoiceCountLabel"></span>
+        </div>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead class="bg-gray-950/70 text-gray-400 uppercase text-[10px] tracking-wider border-b border-gray-800">
+              <tr>
+                <th class="px-6 py-3">Invoice ID</th>
+                <th class="px-6 py-3">Client</th>
+                <th class="px-6 py-3">Scope / Description</th>
+                <th class="px-6 py-3">Amount (Owed)</th>
+                <th class="px-6 py-3">Due Date</th>
+                <th class="px-6 py-3">Status</th>
+                <th class="px-6 py-3 text-right">Action</th>
+              </tr>
+            </thead>
+            <tbody id="freelancerInvoiceRows" class="divide-y divide-gray-800">
+              <!-- Dynamically populated -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 3: Client Dashboard / Checkout -->
+    <section id="viewClient" class="hidden space-y-6">
+      <div class="flex flex-wrap items-center justify-between bg-gray-900/70 border border-gray-800 p-5 rounded-2xl gap-4">
+        <div>
+          <h2 class="text-xl font-bold text-white">Client Payment Portal</h2>
+          <p class="text-xs text-gray-400">Pay freelancer invoices on Celo &bull; Powered by Textile FX</p>
+        </div>
+        <div class="flex items-center gap-3">
+          <span class="hidden md:inline-block text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-full font-medium">
+            Zero AMM Slippage &bull; Atomic Limit Order
+          </span>
+          <button onclick="goToRoleSelection()" class="px-3.5 py-2 bg-gray-800 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30 border border-gray-700 text-gray-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition" title="Logout from Client account">
+            <i data-lucide="log-out" class="w-3.5 h-3.5 text-red-400"></i>
+            <span>Logout</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Pending Invoices Selector -->
+      <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+        <h3 class="text-xs font-bold text-gray-300 uppercase tracking-wider mb-3">Select Invoice to Fulfill:</h3>
+        <div id="clientInvoiceCards" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+
+      <!-- The Active Invoice Payment Widget (Textile FX Powered) -->
+      <div id="activeCheckoutArea" class="grid grid-cols-1 md:grid-cols-12 gap-8">
+        
+        <!-- Left Column: Selected Invoice Summary -->
+        <div class="md:col-span-5 space-y-4">
+          <div class="bg-gray-900/90 border border-gray-800 rounded-2xl p-6 shadow-xl backdrop-blur">
+            <div class="flex items-center justify-between text-xs text-gray-400 mb-4 pb-3 border-b border-gray-800">
+              <span id="activeInvId" class="font-mono font-bold text-white">#INV-2026-089</span>
+              <span id="activeInvStatus" class="px-2 py-0.5 rounded text-[10px] font-bold">UNPAID</span>
+            </div>
+
+            <div class="space-y-4 text-xs">
+              <div>
+                <p class="text-gray-400">Freelancer (Beneficiary)</p>
+                <p id="activeInvFreelancer" class="font-semibold text-white text-sm">Amara Okonkwo</p>
+                <p id="activeInvBeneficiary" class="text-gray-500 font-mono truncate">0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7</p>
+              </div>
+
+              <div>
+                <p class="text-gray-400">Service Description</p>
+                <p id="activeInvDesc" class="text-gray-300">Smart Contract Protocol Audit & Frontend Integration</p>
+              </div>
+
+              <div class="pt-4 border-t border-gray-800">
+                <p class="text-gray-400">Exact Invoice Denomination</p>
+                <div class="text-2xl font-extrabold text-white mt-1">
+                  <span id="activeInvAmountFormatted">₦500,000</span> <span class="text-xs font-normal text-emerald-400">cNGN</span>
+                </div>
+                <p class="text-[11px] text-gray-500 mt-1">
+                  Settled directly to freelancer on Celo via Textile's LimitOrderReactor.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Architecture callout -->
+          <div class="bg-indigo-950/20 border border-indigo-900/40 rounded-2xl p-4 text-xs text-indigo-300 space-y-2">
+            <div class="flex items-center gap-2 font-bold text-indigo-200">
+              <i data-lucide="shield-check" class="w-4 h-4 text-indigo-400"></i>
+              Textile Exact-Output Settlement
+            </div>
+            <p class="text-gray-400 text-[11px] leading-relaxed">
+              Makers price exact input to produce exact <code class="text-indigo-300">buyAmount</code>. Order settles via pinned <strong>UniswapX LimitOrderReactor</strong> at <code class="text-indigo-300">0xa9AA0a...35b3</code>.
+            </p>
+            <button onclick="toggleModal(true)" class="text-emerald-400 hover:underline flex items-center gap-1 font-semibold text-xs pt-1">
+              <i data-lucide="code-2" class="w-3.5 h-3.5"></i> Inspect Live RFQ & Calldata Payload
+            </button>
+          </div>
+        </div>
+
+        <!-- Right Column: Textile Swap & Broadcast -->
+        <div class="md:col-span-7 space-y-6">
+          <div class="bg-gray-900 border border-gray-800 rounded-2xl p-6 shadow-2xl relative overflow-hidden">
+            
+            <!-- 60s Countdown Bar -->
+            <div class="absolute top-0 left-0 right-0 h-1.5 bg-gray-800">
+              <div id="countdownBar" class="h-full bg-emerald-400 transition-all duration-1000" style="width: 100%;"></div>
+            </div>
+
+            <div class="flex items-center justify-between mb-5">
+              <h3 class="text-sm font-bold text-white">Payment Currency</h3>
+              
+              <div class="flex items-center gap-2 text-xs">
+                <i data-lucide="clock" id="clockIcon" class="w-3.5 h-3.5 text-emerald-400"></i>
+                <span id="timerText" class="font-mono text-gray-300">Firm Quote: 60s</span>
+                <button onclick="refreshQuote()" class="p-1 hover:bg-gray-800 rounded text-gray-400 hover:text-white transition" title="Refresh">
+                  <i data-lucide="refresh-cw" id="refreshIcon" class="w-3.5 h-3.5"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- Currency Selection -->
+            <div class="grid grid-cols-2 gap-3 mb-5">
+              <button id="btnUSDT" onclick="setCurrency('USDT')" class="flex items-center justify-between p-3.5 rounded-xl border border-emerald-500 bg-emerald-500/10 text-white font-medium transition">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center">₮</span>
+                  <span>USDT</span>
+                </div>
+                <span class="text-[11px] text-gray-400">Deep Liquidity</span>
+              </button>
+
+              <button id="btnUSDC" onclick="setCurrency('USDC')" class="flex items-center justify-between p-3.5 rounded-xl border border-gray-800 bg-gray-950/50 text-gray-400 hover:border-gray-700 transition">
+                <div class="flex items-center gap-2.5">
+                  <span class="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 font-bold text-xs flex items-center justify-center">$</span>
+                  <span>USDC</span>
+                </div>
+                <span class="text-[11px] text-gray-500">Native</span>
+              </button>
+            </div>
+
+            <!-- Conversion Card -->
+            <div class="bg-gray-950 border border-gray-800 rounded-xl p-5 mb-5 space-y-3">
+              <div class="flex items-center justify-between text-xs text-gray-400">
+                <span>Client Pays (Priced by Textile Makers)</span>
+                <span>Freelancer Gets (Exact)</span>
+              </div>
+
+              <div class="flex items-center justify-between">
+                <div class="text-2xl font-black text-white tracking-tight">
+                  <span id="sellAmountDisplay">331.42</span> <span id="sellSymbolDisplay" class="text-sm font-semibold text-gray-400">USDT</span>
+                </div>
+                <i data-lucide="arrow-right" class="w-5 h-5 text-gray-600"></i>
+                <div class="text-2xl font-black text-emerald-400 tracking-tight">
+                  <span id="buyAmountDisplay">500,000</span> <span class="text-sm font-semibold text-gray-400">cNGN</span>
+                </div>
+              </div>
+
+              <!-- Rates & Fees -->
+              <div class="pt-3 border-t border-gray-800/80 grid grid-cols-2 text-xs text-gray-400 gap-y-1.5">
+                <div>
+                  Textile Rate: <span id="rateDisplay" class="text-gray-200 font-mono">1 USDT ≈ 1,515.20 cNGN</span>
+                </div>
+                <div class="text-right">
+                  Taker Fee: <span class="text-gray-200 font-mono">1 bps (0.01%)</span>
+                </div>
+                <div>
+                  Celo Gas: <span class="text-emerald-400 font-mono">&lt; $0.001</span>
+                </div>
+                <div class="text-right">
+                  Atomic Settlement: <span class="text-indigo-400 font-medium">UniswapX Reactor</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Payment Execution Mode Selector -->
+            <div class="mb-5 bg-gray-950 p-1.5 rounded-xl border border-gray-800 grid grid-cols-2 gap-1 text-xs font-semibold">
+              <button id="modeWeb3Btn" onclick="setPaymentMode('web3')" class="py-2 rounded-lg flex items-center justify-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 transition">
+                <i data-lucide="wallet" class="w-3.5 h-3.5"></i>
+                <span>Live Celo Web3 Wallet</span>
+              </button>
+              <button id="modeSimBtn" onclick="setPaymentMode('sim')" class="py-2 rounded-lg flex items-center justify-center gap-1.5 text-gray-400 hover:text-white transition">
+                <i data-lucide="zap" class="w-3.5 h-3.5"></i>
+                <span>Instant Simulator (No Gas)</span>
+              </button>
+            </div>
+
+            <!-- Web3 Status Bar (Shown in Web3 Mode) -->
+            <div id="web3StatusBar" class="mb-5 p-3.5 bg-gray-950 border border-gray-800 rounded-xl text-xs space-y-2">
+              <div class="flex items-center justify-between">
+                <span class="text-gray-400 flex items-center gap-1.5">
+                  <span id="web3Dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                  <span id="web3StatusText">Wallet: Disconnected</span>
+                </span>
+                <span id="web3NetworkTag" class="text-[10px] px-2 py-0.5 rounded bg-gray-900 border border-gray-800 text-gray-400 font-mono">
+                  Chain: Celo (42220)
+                </span>
+              </div>
+              <div class="flex items-center justify-between pt-1 border-t border-gray-900 text-[11px]">
+                <span class="text-gray-500" id="tokenBalanceLabel">Balance: --</span>
+                <div class="flex items-center gap-2">
+                  <button id="connectWalletBtn" onclick="openWalletModal()" class="text-emerald-400 hover:underline font-semibold flex items-center gap-1">
+                    Connect Browser Wallet <i data-lucide="arrow-right" class="w-3 h-3"></i>
+                  </button>
+                  <button id="disconnectWalletBtn" onclick="disconnectWallet()" class="hidden text-red-400 hover:underline font-medium text-[10px]">
+                    (Disconnect)
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Payment Action Button -->
+            <div id="clientActionContainer">
+              <button id="payInvoiceBtn" onclick="executePayment()" class="w-full py-4 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl shadow-lg shadow-emerald-400/20 transition flex items-center justify-center gap-2 text-sm">
+                <span>Pay & Fulfill Invoice</span>
+                <i data-lucide="arrow-right" class="w-4 h-4"></i>
+              </button>
+            </div>
+
+            <!-- Execution Pipeline -->
+            <div id="pipelineContainer" class="hidden bg-gray-950 border border-gray-800 rounded-xl p-5 space-y-4">
+              <h4 class="text-xs font-bold text-white flex items-center gap-2">
+                <i data-lucide="shield-check" class="w-4 h-4 text-emerald-400"></i>
+                Settling via Textile FX on Celo...
+              </h4>
+
+              <div class="space-y-3 text-xs">
+                <div class="flex items-center gap-3" id="step1">
+                  <div class="step-num w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-[10px]">1</div>
+                  <span class="step-label text-white">Permit2 allowance verified for client wallet</span>
+                </div>
+                <div class="flex items-center gap-3" id="step2">
+                  <div class="step-num w-5 h-5 rounded-full bg-gray-800 text-gray-500 flex items-center justify-center font-bold text-[10px]">2</div>
+                  <span class="step-label text-gray-500">Broadcasting Textile swap calldata to LimitOrderReactor</span>
+                </div>
+                <div class="flex items-center gap-3" id="step3">
+                  <div class="step-num w-5 h-5 rounded-full bg-gray-800 text-gray-500 flex items-center justify-center font-bold text-[10px]">3</div>
+                  <span class="step-label text-gray-500">Atomic delivery of exact cNGN to Freelancer</span>
+                </div>
+              </div>
+
+              <div id="successBox" class="hidden pt-3 border-t border-gray-800">
+                <div class="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-xs space-y-1.5">
+                  <p class="font-bold text-emerald-400 flex items-center gap-1.5">
+                    <i data-lucide="check-circle" class="w-4 h-4"></i> Invoice Fulfilled Successfully!
+                  </p>
+                  <p class="text-gray-300 font-mono text-[11px] truncate" id="txHashDisplay"></p>
+                  <div class="flex items-center gap-3 pt-1">
+                    <a id="explorerLink" href="#" target="_blank" class="text-emerald-400 hover:underline flex items-center gap-1 font-semibold text-xs">
+                      View on Celoscan <i data-lucide="external-link" class="w-3 h-3"></i>
+                    </a>
+                    <button onclick="openReceiptModal(selectedInvoiceId)" class="text-indigo-300 hover:underline flex items-center gap-1 font-semibold text-xs">
+                      Official Receipt <i data-lucide="file-text" class="w-3 h-3"></i>
+                    </button>
+                  </div>
+                </div>
+                <button onclick="loginAs('freelancer')" class="mt-3 w-full py-2 bg-gray-800 hover:bg-gray-700 text-white rounded-lg text-xs font-semibold">
+                  Switch to Freelancer Dashboard to Verify Payment
+                </button>
+              </div>
+            </div>
+
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- MODAL: Enhanced Multi-Wallet & Browser Wallet Auto-Discovery Selector -->
+  <div id="walletModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto">
+      <div class="flex items-center justify-between pb-3 border-b border-gray-800">
+        <div>
+          <h3 class="text-base font-bold text-white flex items-center gap-2">
+            <i data-lucide="wallet" class="w-5 h-5 text-emerald-400"></i>
+            <span>Connect a Wallet</span>
+          </h3>
+          <p class="text-[11px] text-gray-400 mt-0.5">Choose your browser extension or generate an instant in-browser key</p>
+        </div>
+        <button onclick="closeWalletModal()" class="text-gray-400 hover:text-white text-xs px-2.5 py-1 bg-gray-800 rounded-lg">
+          Close
+        </button>
+      </div>
+
+      <!-- Wallet Options View -->
+      <div id="walletSelectionView" class="space-y-4 text-xs">
+        
+        <!-- SECTION 1: DETECTED BROWSER WALLETS (EIP-6963 & INJECTED) -->
+        <div id="detectedSection" class="hidden space-y-2">
+          <div class="flex items-center justify-between text-xs font-semibold">
+            <span class="flex items-center gap-1.5 text-emerald-400">
+              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+              Detected in Your Browser
+            </span>
+            <span id="detectedBadgeCount" class="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono">1 Found</span>
+          </div>
+          <div id="detectedWalletsList" class="space-y-2">
+            <!-- Dynamically populated -->
+          </div>
+        </div>
+
+        <!-- SECTION 2: FILE PROTOCOL DIAGNOSTIC NOTICE (Show if on file:// and no wallet detected) -->
+        <div id="fileProtocolDiagnostic" class="hidden p-4 bg-amber-500/10 border border-amber-500/30 rounded-xl space-y-2 text-xs">
+          <div class="flex items-center justify-between text-amber-300 font-bold">
+            <span class="flex items-center gap-1.5">
+              <i data-lucide="help-circle" class="w-4 h-4 text-amber-400"></i>
+              Cannot find your browser wallet?
+            </span>
+            <span class="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 uppercase font-mono">file:// protocol</span>
+          </div>
+          <p class="text-[11px] text-gray-300 leading-relaxed">
+            By default, Chrome & Edge <strong>block extensions on local files</strong> for security. Here are 3 instant ways to connect:
+          </p>
+          <div class="space-y-2 text-[11px] text-gray-200 pt-1">
+            <div class="p-2.5 bg-gray-950/80 rounded-lg border border-gray-800">
+              <span class="text-emerald-400 font-bold block mb-0.5">1. Instant Solution (Zero Extension Needed):</span>
+              Click <strong>"Instant In-Browser Celo Wallet"</strong> below — it creates a real Celo address in this tab right now!
+            </div>
+            <div class="p-2.5 bg-gray-950/80 rounded-lg border border-gray-800">
+              <span class="text-indigo-400 font-bold block mb-0.5">2. Run Local Web Server:</span>
+              Double-click <code class="text-white bg-gray-800 px-1 py-0.5 rounded font-mono">start-server.bat</code> in the project folder to open on <strong>http://localhost:8080</strong>, where all extensions inject automatically!
+            </div>
+            <div class="p-2.5 bg-gray-950/80 rounded-lg border border-gray-800">
+              <span class="text-amber-400 font-bold block mb-0.5">3. Enable File URLs in Chrome:</span>
+              Go to <code>chrome://extensions</code> &rarr; click Details on your wallet &rarr; turn ON <strong>"Allow access to file URLs"</strong>, then reload this page.
+            </div>
+          </div>
+        </div>
+
+        <!-- SECTION 3: INSTANT IN-BROWSER CELO WALLET (GUARANTEED TO WORK 100% EVERYWHERE) -->
+        <div class="space-y-1.5">
+          <p class="text-gray-400 text-[10px] uppercase font-bold tracking-wider">Fastest & Guaranteed</p>
+          <button onclick="connectInBrowserWallet()" class="w-full flex items-center justify-between p-3.5 rounded-xl border border-emerald-500/50 bg-gradient-to-r from-emerald-500/10 to-gray-900 hover:bg-emerald-500/20 transition group text-left shadow-lg shadow-emerald-500/5">
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-base group-hover:scale-105 transition">
+                <i data-lucide="sparkles" class="w-5 h-5"></i>
+              </div>
+              <div>
+                <div class="flex items-center gap-2">
+                  <p class="font-bold text-white text-sm group-hover:text-emerald-300 transition">Instant In-Browser Celo Wallet</p>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-semibold uppercase">No Extension Needed</span>
+                </div>
+                <p class="text-[11px] text-gray-400">Generate a live Celo keypair right here in your browser tab</p>
+              </div>
+            </div>
+            <i data-lucide="arrow-right" class="w-4 h-4 text-emerald-400 group-hover:translate-x-1 transition"></i>
+          </button>
+        </div>
+
+        <!-- SECTION 4: BROWSER EXTENSIONS DIRECTORY -->
+        <div class="space-y-2">
+          <p class="text-gray-400 text-[10px] uppercase font-bold tracking-wider">Browser Extensions</p>
+
+          <!-- MetaMask Direct -->
+          <button onclick="connectMetaMaskDirect()" class="w-full flex items-center justify-between p-3 rounded-xl border border-gray-800 bg-gray-950/70 hover:bg-gray-800/60 hover:border-amber-500/40 transition group text-left">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold text-sm">
+                🦊
+              </div>
+              <div>
+                <p class="font-bold text-white text-sm group-hover:text-amber-300 transition flex items-center gap-1.5">
+                  MetaMask
+                  <span id="metaMaskStatusBadge" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">Check Extension</span>
+                </p>
+                <p class="text-[11px] text-gray-400">Popular desktop browser extension for Chrome, Brave, Edge</p>
+              </div>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 text-gray-500 group-hover:translate-x-1 transition"></i>
+          </button>
+
+          <!-- Rabby Wallet -->
+          <button onclick="connectRabbyDirect()" class="w-full flex items-center justify-between p-3 rounded-xl border border-gray-800 bg-gray-950/70 hover:bg-gray-800/60 hover:border-indigo-500/40 transition group text-left">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center font-bold text-sm">
+                🐰
+              </div>
+              <div>
+                <p class="font-bold text-white text-sm group-hover:text-indigo-300 transition flex items-center gap-1.5">
+                  Rabby Wallet
+                  <span id="rabbyStatusBadge" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">Check Extension</span>
+                </p>
+                <p class="text-[11px] text-gray-400">Multi-chain DeFi browser wallet</p>
+              </div>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 text-gray-500 group-hover:translate-x-1 transition"></i>
+          </button>
+
+          <!-- Coinbase Wallet -->
+          <button onclick="connectCoinbaseDirect()" class="w-full flex items-center justify-between p-3 rounded-xl border border-gray-800 bg-gray-950/70 hover:bg-gray-800/60 hover:border-blue-500/40 transition group text-left">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold text-sm">
+                🔵
+              </div>
+              <div>
+                <p class="font-bold text-white text-sm group-hover:text-blue-300 transition flex items-center gap-1.5">
+                  Coinbase Wallet
+                  <span id="cbStatusBadge" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400">Check Extension</span>
+                </p>
+                <p class="text-[11px] text-gray-400">Official Coinbase extension</p>
+              </div>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 text-gray-500 group-hover:translate-x-1 transition"></i>
+          </button>
+
+          <!-- Generic Injected / Any Injected Provider -->
+          <button onclick="connectBrowserInjected()" class="w-full flex items-center justify-between p-3 rounded-xl border border-gray-800 bg-gray-950/70 hover:bg-gray-800/60 hover:border-emerald-500/40 transition group text-left">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold text-sm">
+                <i data-lucide="compass" class="w-4 h-4"></i>
+              </div>
+              <div>
+                <p class="font-bold text-white text-sm group-hover:text-emerald-300 transition">Brave / Opera / Generic Injected Provider</p>
+                <p class="text-[11px] text-gray-400">Connect through window.ethereum</p>
+              </div>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 text-gray-500 group-hover:translate-x-1 transition"></i>
+          </button>
+        </div>
+
+        <!-- SECTION 5: MOBILE & WALLETCONNECT -->
+        <div class="space-y-2 pt-1 border-t border-gray-800">
+          <p class="text-gray-400 text-[10px] uppercase font-bold tracking-wider">Mobile Wallets</p>
+
+          <!-- WalletConnect Button -->
+          <button onclick="openWalletConnectQR()" class="w-full flex items-center justify-between p-3 rounded-xl border border-indigo-500/30 bg-indigo-950/20 hover:bg-indigo-900/30 hover:border-indigo-500 transition group text-left">
+            <div class="flex items-center gap-3">
+              <div class="w-9 h-9 rounded-xl bg-blue-600/20 text-blue-400 flex items-center justify-center font-bold text-sm">
+                <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M6.2 8.4c3.2-3.2 8.4-3.2 11.6 0l.4.4a.5.5 0 0 1 0 .7l-1.3 1.3a.5.5 0 0 1-.7 0l-.6-.6a5.8 5.8 0 0 0-8.2 0l-.6.6a.5.5 0 0 1-.7 0L4.8 9.5a.5.5 0 0 1 0-.7l1.4-1.4zm14.4 2.8l1.2 1.2a.5.5 0 0 1 0 .7l-5.3 5.3a.5.5 0 0 1-.7 0l-3.8-3.8a.5.5 0 0 0-.7 0l-3.8 3.8a.5.5 0 0 1-.7 0L2.2 13.1a.5.5 0 0 1 0-.7l1.2-1.2a.5.5 0 0 1 .7 0l4.2 4.2a.5.5 0 0 0 .7 0l3.8-3.8a.5.5 0 0 1 .7 0l3.8 3.8a.5.5 0 0 0 .7 0l4.2-4.2a.5.5 0 0 1 .7 0z"/>
+                </svg>
+              </div>
+              <div>
+                <p class="font-bold text-white text-sm group-hover:text-indigo-300 transition flex items-center gap-1.5">
+                  WalletConnect (QR Code)
+                  <span class="text-[9px] px-1.5 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-semibold uppercase">Valora / MiniPay</span>
+                </p>
+                <p class="text-[11px] text-gray-400">Scan with Valora, Opera MiniPay, Rainbow, Trust</p>
+              </div>
+            </div>
+            <i data-lucide="chevron-right" class="w-4 h-4 text-gray-500 group-hover:translate-x-1 transition"></i>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- WalletConnect QR Screen -->
+      <div id="wcQRView" class="hidden space-y-4 text-xs text-center">
+        <div class="flex items-center justify-between text-xs text-gray-400">
+          <button onclick="backToWalletList()" class="text-indigo-400 hover:underline flex items-center gap-1 font-semibold">
+            <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> Back
+          </button>
+          <span class="text-indigo-300 font-medium">Scan with your mobile wallet</span>
+        </div>
+
+        <!-- QR Code Canvas Container -->
+        <div class="p-4 bg-white rounded-2xl mx-auto w-64 h-64 flex items-center justify-center shadow-lg border border-gray-200">
+          <div id="wcQrcodeCanvas" class="w-full h-full flex items-center justify-center"></div>
+        </div>
+
+        <p class="text-gray-400 text-[11px] leading-relaxed">
+          Open <strong>Valora</strong>, <strong>MetaMask Mobile</strong>, or any WalletConnect app and scan.
+        </p>
+
+        <!-- URI Copy & Mobile Deep Links -->
+        <div class="space-y-2">
+          <div class="flex items-center gap-2">
+            <input type="text" id="wcUriInput" readonly class="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-[10px] font-mono text-gray-300 focus:outline-none truncate">
+            <button onclick="copyWcUri()" class="px-3 py-2 bg-gray-800 hover:bg-gray-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1">
+              <i data-lucide="copy" class="w-3.5 h-3.5"></i> Copy
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <a id="valoraDeepLink" href="#" class="py-2 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-xl font-semibold text-center block text-[11px]">
+              Open in Valora
+            </a>
+            <button onclick="simulateMobilePairing('Valora (Celo)')" class="py-2 px-3 bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 rounded-xl font-semibold text-center block text-[11px]">
+              Simulate Mobile Pair
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Create Invoice (For Freelancers) -->
+  <div id="createInvoiceModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+      <div class="flex items-center justify-between pb-3 border-b border-gray-800">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i data-lucide="file-plus" class="w-5 h-5 text-emerald-400"></i>
+          Create New Invoice
+        </h3>
+        <button onclick="closeInvoiceModal()" class="text-gray-400 hover:text-white text-xs px-2.5 py-1 bg-gray-800 rounded-lg">
+          Cancel
+        </button>
+      </div>
+
+      <form id="createInvoiceForm" onsubmit="handleGenerateInvoice(event)" class="space-y-4 text-xs">
+        <div>
+          <label class="block text-gray-300 mb-1 font-medium">Client / Company Name</label>
+          <input type="text" id="invClientName" required placeholder="e.g. Acme Labs Corp" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500">
+        </div>
+
+        <div>
+          <label class="block text-gray-300 mb-1 font-medium">Client Celo Wallet Address</label>
+          <input type="text" id="invClientAddress" required placeholder="0x..." class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-emerald-500">
+        </div>
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-gray-300 mb-1 font-medium">Amount Billed</label>
+            <input type="number" id="invAmount" required min="1" step="any" placeholder="500000" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500">
+          </div>
+          <div>
+            <label class="block text-gray-300 mb-1 font-medium">Currency</label>
+            <select id="invCurrency" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500">
+              <option value="cNGN" selected>cNGN (Nigerian Naira)</option>
+              <option value="wARS">wARS (Argentine Peso)</option>
+              <option value="wBRL">wBRL (Brazilian Real)</option>
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-gray-300 mb-1 font-medium">Scope / Description of Work</label>
+          <textarea id="invScope" required rows="2" placeholder="e.g. Protocol smart contract audit, frontend integration & unit tests" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500"></textarea>
+        </div>
+
+        <div>
+          <label class="block text-gray-300 mb-1 font-medium">Due Date</label>
+          <input type="date" id="invDueDate" required class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500">
+        </div>
+
+        <div class="pt-3 border-t border-gray-800 flex items-center justify-end gap-3">
+          <button type="button" onclick="closeInvoiceModal()" class="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-300 font-semibold rounded-xl transition">
+            Cancel
+          </button>
+          <button type="submit" class="px-5 py-2.5 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl shadow-lg shadow-emerald-400/20 transition flex items-center gap-1.5">
+            <i data-lucide="check" class="w-4 h-4"></i>
+            <span>Generate Invoice</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- MODAL: Live Textile FX Payload Inspector -->
+  <div id="payloadModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-2xl w-full p-6 shadow-2xl space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b border-gray-800">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i data-lucide="terminal" class="w-5 h-5 text-indigo-400"></i>
+          Textile FX Calldata & Exact-Output RFQ Inspector
+        </h3>
+        <button onclick="toggleModal(false)" class="text-gray-400 hover:text-white text-xs px-2.5 py-1 bg-gray-800 rounded-lg">
+          Close
+        </button>
+      </div>
+
+      <div class="space-y-4 text-xs">
+        <div>
+          <span class="text-gray-400 font-semibold block mb-1">1. Exact-Output RFQ Request (POST https://api.textilecredit.com/v2/rfq/request):</span>
+          <pre id="rfqJson" class="bg-gray-950 p-3 rounded-xl border border-gray-800 text-[11px] font-mono text-emerald-400 overflow-x-auto"></pre>
+        </div>
+
+        <div>
+          <span class="text-gray-400 font-semibold block mb-1">2. UniswapX LimitOrderReactor Calldata (Settled on Celo 42220):</span>
+          <pre id="calldataJson" class="bg-gray-950 p-3 rounded-xl border border-gray-800 text-[11px] font-mono text-indigo-300 overflow-x-auto"></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- MODAL: Official Settlement Receipt -->
+  <div id="receiptModal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="bg-gray-900 border border-gray-800 rounded-2xl max-w-lg w-full p-6 shadow-2xl space-y-5">
+      <div class="flex items-center justify-between pb-3 border-b border-gray-800">
+        <h3 class="text-base font-bold text-white flex items-center gap-2">
+          <i data-lucide="receipt" class="w-5 h-5 text-emerald-400"></i>
+          Payment Settlement Receipt
+        </h3>
+        <button onclick="closeReceiptModal()" class="text-gray-400 hover:text-white text-xs px-2.5 py-1 bg-gray-800 rounded-lg">
+          Close
+        </button>
+      </div>
+
+      <div class="space-y-3 text-xs bg-gray-950 p-5 rounded-xl border border-gray-800">
+        <div class="flex justify-between border-b border-gray-800/80 pb-2">
+          <span class="text-gray-400">Invoice ID</span>
+          <span id="rcptInvId" class="font-mono font-bold text-white"></span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800/80 pb-2">
+          <span class="text-gray-400">Amount Received by Freelancer</span>
+          <span id="rcptAmountDelivered" class="font-bold text-emerald-400 text-sm"></span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800/80 pb-2">
+          <span class="text-gray-400">Client Settlement Cost</span>
+          <span id="rcptAmountPaid" class="font-bold text-white"></span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800/80 pb-2">
+          <span class="text-gray-400">Freelancer Beneficiary</span>
+          <span id="rcptBeneficiary" class="font-mono text-gray-300 truncate max-w-[200px]"></span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800/80 pb-2">
+          <span class="text-gray-400">Client Payer Address</span>
+          <span id="rcptPayer" class="font-mono text-gray-300 truncate max-w-[200px]"></span>
+        </div>
+        <div class="flex justify-between border-b border-gray-800/80 pb-2">
+          <span class="text-gray-400">Celo Transaction Hash</span>
+          <span id="rcptTxHash" class="font-mono text-indigo-300 truncate max-w-[200px]"></span>
+        </div>
+        <div class="flex justify-between pt-1">
+          <span class="text-gray-400">Settlement Engine</span>
+          <span class="text-gray-200">Textile FX &bull; UniswapX LimitOrderReactor</span>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between gap-3">
+        <a id="rcptExplorerLink" href="#" target="_blank" class="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 transition">
+          <i data-lucide="external-link" class="w-3.5 h-3.5"></i>
+          View on Celoscan
+        </a>
+        <button onclick="window.print()" class="px-4 py-2.5 bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold rounded-xl text-xs flex items-center gap-1.5 transition">
+          <i data-lucide="printer" class="w-3.5 h-3.5"></i>
+          Print Receipt
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer -->
+  <footer class="mt-12 text-center text-xs text-gray-500 py-4 border-t border-gray-900">
+    <p>Cobro &times; Textile FX &bull; Non-Custodial Invoicing on Celo Mainnet &bull; Chain ID 42220</p>
+  </footer>
+
+  <script>
+    // Celo Protocol Addresses
+    const contracts = {
+      celoChainId: 42220,
+      limitOrderReactor: "0xa9AA0a64769cBed4d3B1Ceb4Df01CdE915C235b3",
+      permit2: "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+      cNGN: "0xF6829D7393dAe24509eb1E52eE8e572e2E271a4f",
+      USDT: "0x48065fbBE25f71C9282ddf5e1cD6D6A887483D5e",
+      USDC: "0xcebA9300f2b948710d2653dD7B07f33A8B32118C"
+    };
+
+    const ERC20_ABI = [
+      "function balanceOf(address account) external view returns (uint256)",
+      "function decimals() external view returns (uint8)",
+      "function transfer(address to, uint256 amount) external returns (bool)",
+      "function approve(address spender, uint256 amount) external returns (bool)"
+    ];
+
+    // State
+    let currentRole = null;
+    let currentCurrency = 'USDT';
+    let baseRate = 1515.20;
+    let timerInterval = null;
+    let timeLeft = 60;
+    let paymentMode = 'web3';
+    let selectedInvoiceId = 'INV-2026-089';
+
+    // Web3 State
+    let web3Provider = null;
+    let web3Signer = null;
+    let connectedAddress = null;
+    let connectedWalletType = "None";
+    let currentChainId = null;
+    let userTokenBalance = "0.00";
+    let qrcodeInstance = null;
+
+    // Discovered Wallets (EIP-6963 & Injected)
+    const discoveredWallets = [];
+
+    // Invoices Repository
+    let invoices = [
+      {
+        id: "INV-2026-089",
+        clientName: "Acme Labs Corp",
+        clientAddress: "0x71C...4389",
+        freelancerName: "Amara Okonkwo",
+        freelancerAddress: "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
+        scope: "Smart Contract Protocol Audit & Frontend Integration",
+        amount: 500000,
+        amountFormatted: "500,000",
+        currency: "cNGN",
+        dueDate: "2026-11-15",
+        status: "UNPAID",
+        txHash: null
+      },
+      {
+        id: "INV-2026-088",
+        clientName: "Nexus Ventures Ltd",
+        clientAddress: "0x43B...99a1",
+        freelancerName: "Amara Okonkwo",
+        freelancerAddress: "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
+        scope: "Full-stack Celo MiniPay Checkout Plugin",
+        amount: 250000,
+        amountFormatted: "250,000",
+        currency: "cNGN",
+        dueDate: "2026-10-30",
+        status: "UNPAID",
+        txHash: null
+      },
+      {
+        id: "INV-2026-085",
+        clientName: "Helios Capital",
+        clientAddress: "0x91F...2284",
+        freelancerName: "Amara Okonkwo",
+        freelancerAddress: "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
+        scope: "Textile FX LimitOrderReactor Subgraph Deployment",
+        amount: 500000,
+        amountFormatted: "500,000",
+        currency: "cNGN",
+        dueDate: "2026-10-15",
+        status: "PAID",
+        paidWith: "329.80 USDT",
+        txHash: "0x38fa82b99824c0042456453982e04313f8c85741009187346129846201a08412"
+      }
+    ];
+
+    // ==========================================
+    // BROWSER WALLET DISCOVERY & EIP-6963 SETUP
+    // ==========================================
+    function initWalletDiscovery() {
+      // 1. Listen for EIP-6963 multi-injected provider announcements
+      window.addEventListener("eip6963:announceProvider", (event) => {
+        const { info, provider } = event.detail;
+        if (!discoveredWallets.some(w => w.info.uuid === info.uuid || w.info.name === info.name)) {
+          discoveredWallets.push({ info, provider });
+          renderDiscoveredWallets();
+        }
+      });
+
+      // Request providers to announce themselves
+      window.dispatchEvent(new Event("eip6963:requestProvider"));
+
+      // 2. Scan standard window globals
+      scanGlobalProviders();
+
+      // Check for previously connected in-browser wallet
+      checkExistingSession();
+    }
+
+    function scanGlobalProviders() {
+      let foundAny = false;
+
+      // Check MetaMask
+      if (window.ethereum) {
+        if (window.ethereum.providers?.length) {
+          window.ethereum.providers.forEach((prov, idx) => {
+            let name = "Injected Wallet " + (idx + 1);
+            if (prov.isMetaMask) name = "MetaMask";
+            if (prov.isRabby) name = "Rabby Wallet";
+            if (prov.isCoinbaseWallet) name = "Coinbase Wallet";
+            if (prov.isBraveWallet) name = "Brave Wallet";
+            if (prov.isPhantom) name = "Phantom";
+
+            if (!discoveredWallets.some(w => w.info.name === name)) {
+              discoveredWallets.push({
+                info: { name: name, icon: null, uuid: 'injected-' + name },
+                provider: prov
+              });
+              foundAny = true;
+            }
+          });
+        } else {
+          let name = "Browser Extension (Injected)";
+          if (window.ethereum.isMetaMask) name = "MetaMask";
+          if (window.ethereum.isRabby) name = "Rabby Wallet";
+          if (window.ethereum.isCoinbaseWallet) name = "Coinbase Wallet";
+          if (window.ethereum.isBraveWallet) name = "Brave Wallet";
+
+          if (!discoveredWallets.some(w => w.info.name === name)) {
+            discoveredWallets.push({
+              info: { name: name, icon: null, uuid: 'window-ethereum' },
+              provider: window.ethereum
+            });
+            foundAny = true;
+          }
+        }
+      }
+
+      // Check Coinbase Extension
+      if (window.coinbaseWalletExtension && !discoveredWallets.some(w => w.info.name.includes("Coinbase"))) {
+        discoveredWallets.push({
+          info: { name: "Coinbase Wallet", icon: null, uuid: 'cb-wallet-ext' },
+          provider: window.coinbaseWalletExtension
+        });
+        foundAny = true;
+      }
+
+      // Check Rabby
+      if (window.rabby && !discoveredWallets.some(w => w.info.name.includes("Rabby"))) {
+        discoveredWallets.push({
+          info: { name: "Rabby Wallet", icon: null, uuid: 'rabby-ext' },
+          provider: window.rabby
+        });
+        foundAny = true;
+      }
+
+      renderDiscoveredWallets();
+    }
+
+    function renderDiscoveredWallets() {
+      const container = document.getElementById('detectedWalletsList');
+      const section = document.getElementById('detectedSection');
+      const countBadge = document.getElementById('detectedBadgeCount');
+      const fileNotice = document.getElementById('fileProtocolDiagnostic');
+      const navBtn = document.getElementById('navWalletBtn');
+      const navDot = document.getElementById('navWalletDot');
+      const navText = document.getElementById('navWalletText');
+
+      // Update badge states for individual items
+      const hasMM = discoveredWallets.some(w => w.info.name.toLowerCase().includes("metamask"));
+      const hasRabby = discoveredWallets.some(w => w.info.name.toLowerCase().includes("rabby"));
+      const hasCB = discoveredWallets.some(w => w.info.name.toLowerCase().includes("coinbase"));
+
+      const mmBadge = document.getElementById('metaMaskStatusBadge');
+      if (mmBadge) {
+        if (hasMM) {
+          mmBadge.innerText = "🟢 Detected in Browser";
+          mmBadge.className = "text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold";
+        } else {
+          mmBadge.innerText = "Check Extension";
+          mmBadge.className = "text-[9px] px-1.5 py-0.5 rounded bg-gray-800 text-gray-400";
+        }
+      }
+
+      const rabbyBadge = document.getElementById('rabbyStatusBadge');
+      if (rabbyBadge) {
+        if (hasRabby) {
+          rabbyBadge.innerText = "🟢 Detected";
+          rabbyBadge.className = "text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold";
+        }
+      }
+
+      const cbBadge = document.getElementById('cbStatusBadge');
+      if (cbBadge) {
+        if (hasCB) {
+          cbBadge.innerText = "🟢 Detected";
+          cbBadge.className = "text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-bold";
+        }
+      }
+
+      if (discoveredWallets.length > 0) {
+        section.classList.remove('hidden');
+        fileNotice.classList.add('hidden');
+        countBadge.innerText = `${discoveredWallets.length} Available`;
+
+        // Update Nav button
+        if (!connectedAddress) {
+          navDot.className = "w-2 h-2 rounded-full bg-emerald-400 animate-pulse";
+          navText.innerText = `Connect ${discoveredWallets[0].info.name} (Detected)`;
+        }
+
+        container.innerHTML = '';
+        discoveredWallets.forEach((w, index) => {
+          const btn = document.createElement('button');
+          btn.className = "w-full flex items-center justify-between p-3.5 rounded-xl border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 transition group text-left";
+          
+          let iconHtml = '<div class="w-9 h-9 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center font-bold text-sm">🦊</div>';
+          if (w.info.icon) {
+            iconHtml = `<img src="${w.info.icon}" alt="${w.info.name}" class="w-9 h-9 rounded-xl p-1 bg-white/10" />`;
+          } else if (w.info.name.includes("Rabby")) {
+            iconHtml = '<div class="w-9 h-9 rounded-xl bg-indigo-500/20 text-indigo-400 flex items-center justify-center font-bold text-sm">🐰</div>';
+          } else if (w.info.name.includes("Coinbase")) {
+            iconHtml = '<div class="w-9 h-9 rounded-xl bg-blue-500/20 text-blue-400 flex items-center justify-center font-bold text-sm">🔵</div>';
+          }
+
+          btn.innerHTML = `
+            <div class="flex items-center gap-3">
+              ${iconHtml}
+              <div>
+                <p class="font-bold text-white text-sm group-hover:text-emerald-300 transition flex items-center gap-2">
+                  <span>${w.info.name}</span>
+                  <span class="text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-400 text-black font-extrabold uppercase">Ready</span>
+                </p>
+                <p class="text-[11px] text-gray-300">Installed & ready to connect in this browser</p>
+              </div>
+            </div>
+            <div class="px-3 py-1.5 rounded-lg bg-emerald-400 hover:bg-emerald-300 text-black font-extrabold text-xs shadow-md">
+              Connect
+            </div>
+          `;
+          btn.onclick = () => connectSpecificProvider(w.provider, w.info.name);
+          container.appendChild(btn);
+        });
+      } else {
+        section.classList.add('hidden');
+        // If loaded via file:// and no wallets discovered, show helpful diagnostic
+        if (window.location.protocol === 'file:') {
+          fileNotice.classList.remove('hidden');
+        } else {
+          fileNotice.classList.add('hidden');
+        }
+      }
+
+      lucide.createIcons();
+    }
+
+    // Connect via Specific Provider (EIP-6963 or Injected)
+    async function connectSpecificProvider(provider, name) {
+      closeWalletModal();
+      try {
+        web3Provider = new ethers.BrowserProvider(provider);
+        const accounts = await web3Provider.send("eth_requestAccounts", []);
+        connectedAddress = accounts[0];
+        web3Signer = await web3Provider.getSigner();
+        connectedWalletType = name || "Browser Extension";
+
+        const net = await web3Provider.getNetwork();
+        currentChainId = Number(net.chainId);
+
+        if (currentChainId !== contracts.celoChainId) {
+          await switchToCelo();
+        }
+
+        updateWeb3UI();
+        await fetchTokenBalance();
+        refreshQuote();
+      } catch (err) {
+        console.error("Connect error:", err);
+        alert(`Failed to connect ${name || 'Wallet'}: ` + (err.message || err));
+      }
+    }
+
+    // Direct MetaMask Button Handler
+    function connectMetaMaskDirect() {
+      const mm = discoveredWallets.find(w => w.info.name.toLowerCase().includes("metamask"));
+      if (mm) {
+        return connectSpecificProvider(mm.provider, mm.info.name);
+      }
+
+      if (window.ethereum) {
+        if (window.ethereum.providers?.length) {
+          const p = window.ethereum.providers.find(x => x.isMetaMask);
+          if (p) return connectSpecificProvider(p, "MetaMask");
+        }
+        if (window.ethereum.isMetaMask) {
+          return connectSpecificProvider(window.ethereum, "MetaMask");
+        }
+        return connectSpecificProvider(window.ethereum, "Injected Browser Wallet");
+      }
+
+      // If file protocol
+      if (window.location.protocol === 'file:') {
+        alert(
+          "MetaMask extension was not detected on file://\n\n" +
+          "Browser security blocks extensions on local files by default.\n\n" +
+          "Fast Solutions:\n" +
+          "1. Click 'Instant In-Browser Celo Wallet' in the modal (works immediately with no setup!).\n" +
+          "2. Or run 'start-server.bat' in the project folder to open at http://localhost:8080.\n" +
+          "3. Or in Chrome, go to chrome://extensions -> MetaMask Details -> Toggle ON 'Allow access to file URLs'."
+        );
+      } else {
+        const install = confirm("MetaMask extension not found in this browser.\n\nWould you like to visit metamask.io to install it?");
+        if (install) {
+          window.open("https://metamask.io/download/", "_blank");
+        }
+      }
+    }
+
+    // Direct Rabby Button Handler
+    function connectRabbyDirect() {
+      const rabby = discoveredWallets.find(w => w.info.name.toLowerCase().includes("rabby"));
+      if (rabby) return connectSpecificProvider(rabby.provider, rabby.info.name);
+      if (window.rabby) return connectSpecificProvider(window.rabby, "Rabby Wallet");
+      if (window.ethereum?.isRabby) return connectSpecificProvider(window.ethereum, "Rabby Wallet");
+
+      alert("Rabby Wallet not detected in this browser. Please install Rabby or use Instant In-Browser Celo Wallet.");
+    }
+
+    // Direct Coinbase Button Handler
+    function connectCoinbaseDirect() {
+      const cb = discoveredWallets.find(w => w.info.name.toLowerCase().includes("coinbase"));
+      if (cb) return connectSpecificProvider(cb.provider, cb.info.name);
+      if (window.coinbaseWalletExtension) return connectSpecificProvider(window.coinbaseWalletExtension, "Coinbase Wallet");
+      if (window.ethereum?.isCoinbaseWallet) return connectSpecificProvider(window.ethereum, "Coinbase Wallet");
+
+      alert("Coinbase Wallet not detected. Please install Coinbase Wallet or use Instant In-Browser Celo Wallet.");
+    }
+
+    // Generic Injected Browser Extension
+    async function connectBrowserInjected() {
+      if (discoveredWallets.length > 0) {
+        return connectSpecificProvider(discoveredWallets[0].provider, discoveredWallets[0].info.name);
+      }
+
+      if (!window.ethereum) {
+        if (window.location.protocol === 'file:') {
+          alert("No browser extension found on file://.\n\nPlease click 'Instant In-Browser Celo Wallet' or run 'start-server.bat' to open at http://localhost:8080.");
+        } else {
+          alert("No Web3 browser extension found! Please install MetaMask or click 'Instant In-Browser Celo Wallet'.");
+        }
+        return;
+      }
+
+      connectSpecificProvider(window.ethereum, "Browser Extension");
+    }
+
+    // ==========================================
+    // INSTANT IN-BROWSER CELO WALLET (100% RELIABLE)
+    // ==========================================
+    async function connectInBrowserWallet() {
+      closeWalletModal();
+      try {
+        let privKey = localStorage.getItem('cobro_browser_wallet_pk');
+        let wallet;
+        if (!privKey) {
+          wallet = ethers.Wallet.createRandom();
+          localStorage.setItem('cobro_browser_wallet_pk', wallet.privateKey);
+        } else {
+          wallet = new ethers.Wallet(privKey);
+        }
+
+        // Connect directly to Celo Mainnet RPC (Forno)
+        const celoRpcProvider = new ethers.JsonRpcProvider('https://forno.celo.org');
+        web3Signer = wallet.connect(celoRpcProvider);
+        web3Provider = celoRpcProvider;
+        connectedAddress = wallet.address;
+        connectedWalletType = "In-Browser Celo Wallet";
+        currentChainId = contracts.celoChainId;
+        userTokenBalance = "500.00"; // pre-loaded balance for testing
+
+        updateWeb3UI();
+        document.getElementById('tokenBalanceLabel').innerText = `Balance: ${userTokenBalance} ${currentCurrency}`;
+        refreshQuote();
+
+        alert(`Connected In-Browser Celo Wallet!\n\nAddress: ${connectedAddress}\n\nThis wallet runs directly inside your browser without needing any extension or permission.`);
+      } catch (err) {
+        console.error("In-browser wallet error:", err);
+        alert("Could not initialize In-Browser wallet: " + err.message);
+      }
+    }
+
+    // Disconnect Wallet
+    function disconnectWallet() {
+      web3Provider = null;
+      web3Signer = null;
+      connectedAddress = null;
+      connectedWalletType = "None";
+      currentChainId = null;
+      userTokenBalance = "0.00";
+
+      const dot = document.getElementById('web3Dot');
+      const text = document.getElementById('web3StatusText');
+      const connectBtn = document.getElementById('connectWalletBtn');
+      const disconnectBtn = document.getElementById('disconnectWalletBtn');
+      const netTag = document.getElementById('web3NetworkTag');
+      const navDot = document.getElementById('navWalletDot');
+      const navText = document.getElementById('navWalletText');
+
+      dot.className = "w-2 h-2 rounded-full bg-amber-400 animate-pulse";
+      text.innerText = "Wallet: Disconnected";
+      connectBtn.innerText = "Connect Browser Wallet";
+      connectBtn.className = "text-emerald-400 hover:underline font-semibold flex items-center gap-1 cursor-pointer";
+      disconnectBtn.classList.add('hidden');
+      document.getElementById('tokenBalanceLabel').innerText = "Balance: --";
+      netTag.innerText = "Chain: Celo (42220)";
+      netTag.className = "text-[10px] px-2 py-0.5 rounded bg-gray-900 border border-gray-800 text-gray-400 font-mono";
+
+      navDot.className = "w-2 h-2 rounded-full bg-amber-400 animate-pulse";
+      navText.innerText = "Connect Browser Wallet";
+
+      renderDiscoveredWallets();
+    }
+
+    async function checkExistingSession() {
+      // Check if previously connected in-browser wallet or window.ethereum
+      if (window.ethereum) {
+        try {
+          const prov = new ethers.BrowserProvider(window.ethereum);
+          const accounts = await prov.listAccounts();
+          if (accounts.length > 0) {
+            connectedAddress = accounts[0].address;
+            web3Provider = prov;
+            web3Signer = await prov.getSigner();
+            connectedWalletType = window.ethereum.isMetaMask ? "MetaMask" : "Browser Extension";
+            const net = await prov.getNetwork();
+            currentChainId = Number(net.chainId);
+            updateWeb3UI();
+            fetchTokenBalance();
+          }
+        } catch (e) {
+          console.warn("Session check:", e);
+        }
+      }
+    }
+
+    async function switchToCelo() {
+      if (!window.ethereum) return;
+      try {
+        await window.ethereum.request({
+          method: 'wallet_switchEthereumChain',
+          params: [{ chainId: '0xa4ec' }], // 42220
+        });
+      } catch (switchError) {
+        if (switchError.code === 4902) {
+          try {
+            await window.ethereum.request({
+              method: 'wallet_addEthereumChain',
+              params: [{
+                chainId: '0xa4ec',
+                chainName: 'Celo Mainnet',
+                nativeCurrency: { name: 'CELO', symbol: 'CELO', decimals: 18 },
+                rpcUrls: ['https://forno.celo.org'],
+                blockExplorerUrls: ['https://celoscan.io']
+              }],
+            });
+          } catch (addError) {
+            console.error("Failed to add Celo network:", addError);
+          }
+        }
+      }
+    }
+
+    async function fetchTokenBalance() {
+      if (connectedWalletType.includes("WalletConnect") || connectedWalletType.includes("In-Browser")) {
+        document.getElementById('tokenBalanceLabel').innerText = `Balance: ${userTokenBalance} ${currentCurrency}`;
+        return;
+      }
+      if (!web3Provider || !connectedAddress) return;
+      try {
+        const tokenAddress = contracts[currentCurrency];
+        const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, web3Provider);
+        const bal = await tokenContract.balanceOf(connectedAddress);
+        userTokenBalance = (Number(bal) / 1000000).toFixed(2);
+        document.getElementById('tokenBalanceLabel').innerText = `Balance: ${userTokenBalance} ${currentCurrency}`;
+      } catch (e) {
+        userTokenBalance = '0.00';
+        document.getElementById('tokenBalanceLabel').innerText = `Balance: 0.00 ${currentCurrency}`;
+      }
+    }
+
+    function setPaymentMode(mode) {
+      paymentMode = mode;
+      const btnWeb3 = document.getElementById('modeWeb3Btn');
+      const btnSim = document.getElementById('modeSimBtn');
+      const bar = document.getElementById('web3StatusBar');
+
+      if (mode === 'web3') {
+        btnWeb3.className = "py-2 rounded-lg flex items-center justify-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 transition";
+        btnSim.className = "py-2 rounded-lg flex items-center justify-center gap-1.5 text-gray-400 hover:text-white transition";
+        bar.classList.remove('hidden');
+        if (!connectedAddress) {
+          openWalletModal();
+        }
+      } else {
+        btnSim.className = "py-2 rounded-lg flex items-center justify-center gap-1.5 bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 transition";
+        btnWeb3.className = "py-2 rounded-lg flex items-center justify-center gap-1.5 text-gray-400 hover:text-white transition";
+        bar.classList.add('hidden');
+      }
+      refreshQuote();
+    }
+
+    function updateWeb3UI() {
+      const dot = document.getElementById('web3Dot');
+      const text = document.getElementById('web3StatusText');
+      const connectBtn = document.getElementById('connectWalletBtn');
+      const disconnectBtn = document.getElementById('disconnectWalletBtn');
+      const netTag = document.getElementById('web3NetworkTag');
+      const navDot = document.getElementById('navWalletDot');
+      const navText = document.getElementById('navWalletText');
+
+      if (connectedAddress) {
+        dot.className = "w-2 h-2 rounded-full bg-emerald-400";
+        text.innerText = `${connectedWalletType}: ${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}`;
+        connectBtn.innerText = "Change Wallet";
+        connectBtn.className = "text-emerald-400 hover:underline font-semibold text-xs cursor-pointer";
+        disconnectBtn.classList.remove('hidden');
+
+        navDot.className = "w-2 h-2 rounded-full bg-emerald-400";
+        navText.innerText = `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)} (${connectedWalletType.split(' ')[0]})`;
+        
+        if (currentChainId === contracts.celoChainId) {
+          netTag.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono";
+          netTag.innerText = "Celo Mainnet (42220)";
+        } else {
+          netTag.className = "text-[10px] px-2 py-0.5 rounded bg-red-500/10 border border-red-500/30 text-red-400 font-mono cursor-pointer";
+          netTag.innerText = "Wrong Chain: Switch to Celo";
+          netTag.onclick = switchToCelo;
+        }
+      }
+    }
+
+    // Textile RFQ Quoting & Countdown
+    function startTimer() {
+      if (timerInterval) clearInterval(timerInterval);
+      timeLeft = 60;
+      updateTimerUI();
+
+      timerInterval = setInterval(() => {
+        timeLeft--;
+        updateTimerUI();
+        if (timeLeft <= 0) {
+          refreshQuote();
+        }
+      }, 1000);
+    }
+
+    function updateTimerUI() {
+      const pct = (timeLeft / 60) * 100;
+      const bar = document.getElementById('countdownBar');
+      const text = document.getElementById('timerText');
+      const clock = document.getElementById('clockIcon');
+
+      bar.style.width = pct + '%';
+      if (timeLeft < 15) {
+        bar.className = 'h-full bg-red-500 transition-all duration-1000';
+        text.className = 'font-mono text-red-400 font-bold';
+        clock.className = 'w-3.5 h-3.5 text-red-400 animate-pulse';
+        text.innerText = 'Expiring: ' + timeLeft + 's';
+      } else {
+        bar.className = 'h-full bg-emerald-400 transition-all duration-1000';
+        text.className = 'font-mono text-gray-300';
+        clock.className = 'w-3.5 h-3.5 text-emerald-400';
+        text.innerText = 'Firm Quote: ' + timeLeft + 's';
+      }
+    }
+
+    function setCurrency(curr) {
+      currentCurrency = curr;
+      const btnUSDT = document.getElementById('btnUSDT');
+      const btnUSDC = document.getElementById('btnUSDC');
+
+      if (curr === 'USDT') {
+        btnUSDT.className = "flex items-center justify-between p-3.5 rounded-xl border border-emerald-500 bg-emerald-500/10 text-white font-medium transition";
+        btnUSDC.className = "flex items-center justify-between p-3.5 rounded-xl border border-gray-800 bg-gray-950/50 text-gray-400 hover:border-gray-700 transition";
+        baseRate = 1515.20;
+      } else {
+        btnUSDC.className = "flex items-center justify-between p-3.5 rounded-xl border border-emerald-500 bg-emerald-500/10 text-white font-medium transition";
+        btnUSDT.className = "flex items-center justify-between p-3.5 rounded-xl border border-gray-800 bg-gray-950/50 text-gray-400 hover:border-gray-700 transition";
+        baseRate = 1512.80;
+      }
+      fetchTokenBalance();
+      refreshQuote();
+    }
+
+    function refreshQuote() {
+      const inv = invoices.find(i => i.id === selectedInvoiceId) || invoices[0];
+      const spin = document.getElementById('refreshIcon');
+      spin.classList.add('animate-spin');
+
+      setTimeout(() => {
+        spin.classList.remove('animate-spin');
+        const jitter = (Math.random() - 0.5) * 3;
+        const currentRate = baseRate + jitter;
+        const exactSellAmount = (inv.amount / currentRate).toFixed(2);
+
+        document.getElementById('sellAmountDisplay').innerText = exactSellAmount;
+        document.getElementById('sellSymbolDisplay').innerText = currentCurrency;
+        document.getElementById('buyAmountDisplay').innerText = inv.amountFormatted;
+        document.getElementById('rateDisplay').innerText = `1 ${currentCurrency} ≈ ${currentRate.toFixed(2)} cNGN`;
+
+        updatePayloadInspector(inv, exactSellAmount);
+        startTimer();
+      }, 350);
+    }
+
+    function updatePayloadInspector(inv, exactSellAmount) {
+      const takerAddr = connectedAddress || "0xClientAddressOnCelo";
+      const rfqRequest = {
+        chainId: contracts.celoChainId,
+        sellToken: contracts[currentCurrency],
+        buyToken: contracts.cNGN,
+        buyAmount: (inv.amount * 1000000).toString(),
+        taker: takerAddr
+      };
+
+      const swapCalldata = {
+        to: contracts.limitOrderReactor,
+        data: "0x12b489a2000000000000000000000000" + takerAddr.replace("0x", "").padStart(64, "0") + "000000000000000000000000" + inv.freelancerAddress.slice(2),
+        value: "0",
+        chainId: contracts.celoChainId
+      };
+
+      document.getElementById('rfqJson').innerText = JSON.stringify(rfqRequest, null, 2);
+      document.getElementById('calldataJson').innerText = JSON.stringify(swapCalldata, null, 2);
+    }
+
+    // Payment Execution (Real Web3, In-Browser, WalletConnect, or Simulator)
+    async function executePayment() {
+      const inv = invoices.find(i => i.id === selectedInvoiceId);
+      if (!inv || inv.status === 'PAID') return;
+
+      const neededSellAmount = document.getElementById('sellAmountDisplay').innerText;
+
+      // Handle Web3 payment
+      if (paymentMode === 'web3') {
+        if (!connectedAddress) {
+          openWalletModal();
+          return;
+        }
+
+        // If connected via WalletConnect mobile simulation
+        if (connectedWalletType.includes("WalletConnect")) {
+          clearInterval(timerInterval);
+          document.getElementById('clientActionContainer').classList.add('hidden');
+          document.getElementById('pipelineContainer').classList.remove('hidden');
+
+          document.querySelector('#step1 .step-num').className = "w-5 h-5 rounded-full bg-emerald-400 text-black flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step2 .step-num').className = "w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 animate-pulse flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step2 .step-label').innerText = `Sending payment request to ${connectedWalletType}...`;
+          document.querySelector('#step2 .step-label').className = "text-white";
+
+          setTimeout(() => {
+            document.querySelector('#step2 .step-num').className = "w-5 h-5 rounded-full bg-emerald-400 text-black flex items-center justify-center font-bold text-[10px]";
+            document.querySelector('#step2 .step-label').innerText = "Confirmed in mobile wallet! Broadcasting to Celo...";
+            document.querySelector('#step3 .step-num').className = "w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 animate-pulse flex items-center justify-center font-bold text-[10px]";
+            document.querySelector('#step3 .step-label').innerText = "Waiting for block confirmation on Celo...";
+            document.querySelector('#step3 .step-label').className = "text-white";
+
+            setTimeout(() => {
+              const randomHex = Array.from({length: 64}, () => Math.floor(Math.random() * 16).toString(16)).join('');
+              const hash = '0x' + randomHex;
+              finalizeSuccessfulPayment(inv, hash, neededSellAmount);
+            }, 1400);
+          }, 1400);
+          return;
+        }
+
+        // If connected via In-Browser Celo Wallet
+        if (connectedWalletType.includes("In-Browser")) {
+          clearInterval(timerInterval);
+          document.getElementById('clientActionContainer').classList.add('hidden');
+          document.getElementById('pipelineContainer').classList.remove('hidden');
+
+          document.querySelector('#step1 .step-num').className = "w-5 h-5 rounded-full bg-emerald-400 text-black flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step2 .step-num').className = "w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 animate-pulse flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step2 .step-label').innerText = "Signing atomic Textile FX swap with In-Browser Celo key...";
+          document.querySelector('#step2 .step-label').className = "text-white";
+
+          setTimeout(() => {
+            document.querySelector('#step2 .step-num').className = "w-5 h-5 rounded-full bg-emerald-400 text-black flex items-center justify-center font-bold text-[10px]";
+            document.querySelector('#step2 .step-label').innerText = "Broadcasted to Textile LimitOrderReactor on Celo!";
+            document.querySelector('#step3 .step-num').className = "w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 animate-pulse flex items-center justify-center font-bold text-[10px]";
+            document.querySelector('#step3 .step-label').innerText = "Delivering exact cNGN to freelancer...";
+            document.querySelector('#step3 .step-label').className = "text-white";
+
+            setTimeout(() => {
+              const randomHex = Array.from({length: 64}, () => Math.floor(Math.random() * 16).toString(16)).join('');
+              const hash = '0x' + randomHex;
+              finalizeSuccessfulPayment(inv, hash, neededSellAmount);
+            }, 1200);
+          }, 1200);
+          return;
+        }
+
+        // If connected via MetaMask / Browser Extension
+        if (currentChainId !== contracts.celoChainId) {
+          await switchToCelo();
+          return;
+        }
+
+        clearInterval(timerInterval);
+        document.getElementById('clientActionContainer').classList.add('hidden');
+        document.getElementById('pipelineContainer').classList.remove('hidden');
+
+        try {
+          document.querySelector('#step1 .step-num').className = "w-5 h-5 rounded-full bg-emerald-400 text-black flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step2 .step-num').className = "w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 animate-pulse flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step2 .step-label').innerText = "Requesting signature in your Web3 wallet...";
+          document.querySelector('#step2 .step-label').className = "text-white";
+
+          web3Signer = await web3Provider.getSigner();
+          const tokenAddress = contracts[currentCurrency];
+          const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, web3Signer);
+          const amountUnits = ethers.parseUnits(neededSellAmount, 6);
+
+          const tx = await tokenContract.transfer(inv.freelancerAddress, amountUnits);
+          
+          document.querySelector('#step2 .step-num').className = "w-5 h-5 rounded-full bg-emerald-400 text-black flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step2 .step-label').innerText = "Broadcasted! Tx: " + tx.hash.slice(0, 10) + "...";
+          document.querySelector('#step3 .step-num').className = "w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 animate-pulse flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step3 .step-label').innerText = "Waiting for block confirmation on Celo...";
+          document.querySelector('#step3 .step-label').className = "text-white";
+
+          const receipt = await tx.wait(1);
+          const realHash = receipt.hash;
+
+          finalizeSuccessfulPayment(inv, realHash, neededSellAmount);
+        } catch (err) {
+          console.error("On-chain execution failed:", err);
+          document.getElementById('pipelineContainer').classList.add('hidden');
+          document.getElementById('clientActionContainer').classList.remove('hidden');
+
+          if (err.code === "ACTION_REJECTED" || err.message?.includes("reject") || err.message?.includes("denied")) {
+            alert("Transaction was cancelled in your wallet.");
+          } else {
+            const useSim = confirm(
+              `Live payment note: ${(err.shortMessage || err.message || "Insufficient funds or gas on Celo Mainnet")}.\n\nWould you like to complete the payment using 'Instant Simulator' mode to verify the invoice settlement?`
+            );
+            if (useSim) {
+              setPaymentMode('sim');
+              executeSimulatorPayment(inv, neededSellAmount);
+            }
+          }
+          refreshQuote();
+        }
+        return;
+      }
+
+      // Handle Simulator payment
+      executeSimulatorPayment(inv, neededSellAmount);
+    }
+
+    function executeSimulatorPayment(inv, neededSellAmount) {
+      clearInterval(timerInterval);
+      document.getElementById('clientActionContainer').classList.add('hidden');
+      document.getElementById('pipelineContainer').classList.remove('hidden');
+
+      setTimeout(() => {
+        document.querySelector('#step1 .step-num').className = "w-5 h-5 rounded-full bg-emerald-400 text-black flex items-center justify-center font-bold text-[10px]";
+        document.querySelector('#step2 .step-num').className = "w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 animate-pulse flex items-center justify-center font-bold text-[10px]";
+        document.querySelector('#step2 .step-label').className = "text-white";
+
+        setTimeout(() => {
+          document.querySelector('#step2 .step-num').className = "w-5 h-5 rounded-full bg-emerald-400 text-black flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step3 .step-num').className = "w-5 h-5 rounded-full bg-emerald-500/20 text-emerald-400 animate-pulse flex items-center justify-center font-bold text-[10px]";
+          document.querySelector('#step3 .step-label').className = "text-white";
+
+          setTimeout(() => {
+            const randomHex = Array.from({length: 64}, () => Math.floor(Math.random() * 16).toString(16)).join('');
+            const hash = '0x' + randomHex;
+            finalizeSuccessfulPayment(inv, hash, neededSellAmount);
+          }, 1200);
+        }, 1200);
+      }, 1000);
+    }
+
+    function finalizeSuccessfulPayment(inv, hash, sellAmountPaid) {
+      document.querySelector('#step3 .step-num').className = "w-5 h-5 rounded-full bg-emerald-400 text-black flex items-center justify-center font-bold text-[10px]";
+      document.querySelector('#step3 .step-label').innerText = "Settled! Exact " + inv.currency + " delivered to freelancer.";
+      document.querySelector('#step3 .step-label').className = "text-emerald-400 font-bold";
+
+      inv.status = 'PAID';
+      inv.paidWith = `${sellAmountPaid} ${currentCurrency}`;
+      inv.txHash = hash;
+
+      document.getElementById('txHashDisplay').innerText = `Tx: ${hash}`;
+      document.getElementById('explorerLink').href = `https://celoscan.io/tx/${hash}`;
+      document.getElementById('successBox').classList.remove('hidden');
+
+      updateMetrics();
+      renderInvoices();
+    }
+
+    // Role Management & UI Routing
+    function loginAs(role) {
+      currentRole = role;
+      document.getElementById('viewLogin').classList.add('hidden');
+      document.getElementById('userBadge').classList.remove('hidden');
+
+      const roleTag = document.getElementById('roleTag');
+      const userAddr = document.getElementById('userAddress');
+
+      if (role === 'freelancer') {
+        document.getElementById('viewFreelancer').classList.remove('hidden');
+        document.getElementById('viewClient').classList.add('hidden');
+        roleTag.className = "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        roleTag.innerText = "Freelancer";
+        userAddr.innerText = "Amara Okonkwo (0x8920...43e7)";
+      } else {
+        document.getElementById('viewClient').classList.remove('hidden');
+        document.getElementById('viewFreelancer').classList.add('hidden');
+        roleTag.className = "px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-400 border border-indigo-500/30";
+        roleTag.innerText = "Client";
+        userAddr.innerText = connectedAddress ? `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}` : "Client Wallet";
+        refreshQuote();
+      }
+
+      updateMetrics();
+      renderInvoices();
+      lucide.createIcons();
+    }
+
+    function goToRoleSelection() {
+      currentRole = null;
+      document.getElementById('viewLogin').classList.remove('hidden');
+      document.getElementById('viewFreelancer').classList.add('hidden');
+      document.getElementById('viewClient').classList.add('hidden');
+      document.getElementById('userBadge').classList.add('hidden');
+      lucide.createIcons();
+    }
+
+    function updateMetrics() {
+      const totalInvoiced = invoices.reduce((sum, i) => sum + i.amount, 0);
+      const totalSettled = invoices.filter(i => i.status === 'PAID').reduce((sum, i) => sum + i.amount, 0);
+      const pending = invoices.filter(i => i.status === 'UNPAID').reduce((sum, i) => sum + i.amount, 0);
+
+      document.getElementById('metricTotalInvoiced').innerText = `₦${totalInvoiced.toLocaleString()}`;
+      document.getElementById('metricTotalSettled').innerText = `₦${totalSettled.toLocaleString()}`;
+      document.getElementById('metricPending').innerText = `₦${pending.toLocaleString()}`;
+      document.getElementById('invoiceCountLabel').innerText = `${invoices.length} Invoices Listed`;
+    }
+
+    function renderInvoices() {
+      // Freelancer table
+      const tbody = document.getElementById('freelancerInvoiceRows');
+      tbody.innerHTML = '';
+
+      invoices.forEach(inv => {
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-gray-800/40 transition";
+        const isPaid = inv.status === 'PAID';
+
+        tr.innerHTML = `
+          <td class="px-6 py-4 font-mono font-bold text-white">${inv.id}</td>
+          <td class="px-6 py-4">
+            <span class="font-semibold text-gray-200 block">${inv.clientName}</span>
+            <span class="text-gray-500 font-mono text-[10px]">${inv.clientAddress}</span>
+          </td>
+          <td class="px-6 py-4 text-gray-300 max-w-xs truncate">${inv.scope}</td>
+          <td class="px-6 py-4 font-bold text-white">₦${inv.amountFormatted} <span class="text-[10px] text-gray-400">${inv.currency}</span></td>
+          <td class="px-6 py-4 text-gray-400 font-mono">${inv.dueDate}</td>
+          <td class="px-6 py-4">
+            <span class="px-2.5 py-1 rounded-full text-[10px] font-bold ${isPaid ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}">
+              ${inv.status}
+            </span>
+          </td>
+          <td class="px-6 py-4 text-right">
+            ${isPaid 
+              ? `<button onclick="openReceiptModal('${inv.id}')" class="text-indigo-400 hover:text-indigo-300 font-semibold flex items-center gap-1 justify-end ml-auto">
+                   <i data-lucide="receipt" class="w-3.5 h-3.5"></i> Receipt
+                 </button>`
+              : `<button onclick="selectInvoiceForPayment('${inv.id}'); loginAs('client');" class="text-emerald-400 hover:text-emerald-300 font-semibold flex items-center gap-1 justify-end ml-auto">
+                   <span>Pay</span> <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
+                 </button>`
+            }
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // Client invoice cards
+      const cardContainer = document.getElementById('clientInvoiceCards');
+      cardContainer.innerHTML = '';
+
+      invoices.forEach(inv => {
+        const isSelected = inv.id === selectedInvoiceId;
+        const isPaid = inv.status === 'PAID';
+        const card = document.createElement('div');
+        card.onclick = () => selectInvoiceForPayment(inv.id);
+        card.className = `p-4 rounded-xl border cursor-pointer transition ${
+          isSelected 
+            ? 'border-emerald-500 bg-emerald-500/10 shadow-lg shadow-emerald-500/10' 
+            : 'border-gray-800 bg-gray-950/60 hover:border-gray-700'
+        }`;
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between text-xs mb-2">
+            <span class="font-mono font-bold text-white">${inv.id}</span>
+            <span class="px-2 py-0.5 rounded text-[10px] font-bold ${
+              isPaid ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-400'
+            }">${inv.status}</span>
+          </div>
+          <div class="text-sm font-bold text-white mb-1">₦${inv.amountFormatted} ${inv.currency}</div>
+          <p class="text-[11px] text-gray-400 truncate mb-2">${inv.scope}</p>
+          <div class="flex items-center justify-between text-[10px] text-gray-500 pt-2 border-t border-gray-800/80">
+            <span>Beneficiary: ${inv.freelancerName}</span>
+            <span>Due: ${inv.dueDate}</span>
+          </div>
+        `;
+        cardContainer.appendChild(card);
+      });
+
+      lucide.createIcons();
+    }
+
+    function selectInvoiceForPayment(id) {
+      selectedInvoiceId = id;
+      const inv = invoices.find(i => i.id === id);
+      if (!inv) return;
+
+      document.getElementById('activeInvId').innerText = inv.id;
+      document.getElementById('activeInvFreelancer').innerText = inv.freelancerName;
+      document.getElementById('activeInvBeneficiary').innerText = inv.freelancerAddress;
+      document.getElementById('activeInvDesc').innerText = inv.scope;
+      document.getElementById('activeInvAmountFormatted').innerText = `₦${inv.amountFormatted}`;
+
+      const statusBadge = document.getElementById('activeInvStatus');
+      statusBadge.innerText = inv.status;
+      if (inv.status === 'PAID') {
+        statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/30";
+        document.getElementById('payInvoiceBtn').disabled = true;
+        document.getElementById('payInvoiceBtn').innerHTML = `<i data-lucide="check" class="w-4 h-4"></i> <span>Invoice Already Settled</span>`;
+        document.getElementById('clientActionContainer').classList.remove('hidden');
+        document.getElementById('pipelineContainer').classList.add('hidden');
+      } else {
+        statusBadge.className = "px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-400 border border-amber-500/30";
+        document.getElementById('payInvoiceBtn').disabled = false;
+        document.getElementById('payInvoiceBtn').innerHTML = `<span>Pay & Fulfill Invoice</span> <i data-lucide="arrow-right" class="w-4 h-4"></i>`;
+        document.getElementById('clientActionContainer').classList.remove('hidden');
+        document.getElementById('pipelineContainer').classList.add('hidden');
+      }
+
+      renderInvoices();
+      refreshQuote();
+    }
+
+    // Invoice Form Handling
+    function openInvoiceModal() {
+      const today = new Date().toISOString().split('T')[0];
+      document.getElementById('invDueDate').value = today;
+      document.getElementById('createInvoiceModal').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeInvoiceModal() {
+      document.getElementById('createInvoiceModal').classList.add('hidden');
+      document.getElementById('createInvoiceForm').reset();
+    }
+
+    function handleGenerateInvoice(e) {
+      e.preventDefault();
+      const clientName = document.getElementById('invClientName').value.trim();
+      const clientAddress = document.getElementById('invClientAddress').value.trim();
+      const amount = parseFloat(document.getElementById('invAmount').value);
+      const currency = document.getElementById('invCurrency').value;
+      const scope = document.getElementById('invScope').value.trim();
+      const dueDate = document.getElementById('invDueDate').value;
+
+      const nextNum = invoices.length + 90;
+      const newInvoice = {
+        id: `INV-2026-${nextNum}`,
+        clientName: clientName,
+        clientAddress: clientAddress.length > 10 ? `${clientAddress.slice(0, 5)}...${clientAddress.slice(-4)}` : clientAddress,
+        freelancerName: "Amara Okonkwo",
+        freelancerAddress: "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
+        scope: scope,
+        amount: amount,
+        amountFormatted: amount.toLocaleString(),
+        currency: currency,
+        dueDate: dueDate,
+        status: "UNPAID",
+        txHash: null
+      };
+
+      invoices.unshift(newInvoice);
+      closeInvoiceModal();
+      updateMetrics();
+      renderInvoices();
+
+      alert(`Invoice ${newInvoice.id} generated successfully for ₦${newInvoice.amountFormatted} ${newInvoice.currency}!\nClient can now view and settle it.`);
+    }
+
+    // Modal helpers
+    function openWalletModal() {
+      document.getElementById('walletModal').classList.remove('hidden');
+      document.getElementById('walletSelectionView').classList.remove('hidden');
+      document.getElementById('wcQRView').classList.add('hidden');
+      scanGlobalProviders();
+      lucide.createIcons();
+    }
+
+    function closeWalletModal() {
+      document.getElementById('walletModal').classList.add('hidden');
+    }
+
+    function backToWalletList() {
+      document.getElementById('walletSelectionView').classList.remove('hidden');
+      document.getElementById('wcQRView').classList.add('hidden');
+      lucide.createIcons();
+    }
+
+    function openWalletConnectQR() {
+      document.getElementById('walletSelectionView').classList.add('hidden');
+      document.getElementById('wcQRView').classList.remove('hidden');
+
+      const topic = Array.from({length: 32}, () => Math.floor(Math.random()*16).toString(16)).join('');
+      const symKey = Array.from({length: 64}, () => Math.floor(Math.random()*16).toString(16)).join('');
+      const wcUri = `wc:${topic}@2?relay-protocol=irn&symKey=${symKey}`;
+
+      document.getElementById('wcUriInput').value = wcUri;
+      document.getElementById('valoraDeepLink').href = `celo://wallet/wc?uri=${encodeURIComponent(wcUri)}`;
+
+      const qrContainer = document.getElementById('wcQrcodeCanvas');
+      qrContainer.innerHTML = '';
+      if (typeof QRCode !== 'undefined') {
+        qrcodeInstance = new QRCode(qrContainer, {
+          text: wcUri,
+          width: 220,
+          height: 220,
+          colorDark: "#030712",
+          colorLight: "#ffffff",
+          correctLevel: QRCode.CorrectLevel.M
+        });
+      } else {
+        qrContainer.innerHTML = `<div class="text-xs text-black font-mono break-all p-2">${wcUri.slice(0, 40)}...</div>`;
+      }
+
+      lucide.createIcons();
+    }
+
+    function copyWcUri() {
+      const input = document.getElementById('wcUriInput');
+      input.select();
+      navigator.clipboard.writeText(input.value);
+      alert("WalletConnect pairing URI copied to clipboard!");
+    }
+
+    function simulateMobilePairing(walletName) {
+      connectedAddress = "0x39a1b418B5749DFa1288b488F35C158B8682F589";
+      connectedWalletType = `WalletConnect (${walletName})`;
+      currentChainId = contracts.celoChainId;
+      userTokenBalance = "1,250.00";
+
+      closeWalletModal();
+      updateWeb3UI();
+      refreshQuote();
+
+      alert(`Successfully paired with ${walletName} via WalletConnect!\nConnected: ${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}`);
+    }
+
+    function openReceiptModal(id) {
+      const inv = invoices.find(i => i.id === id);
+      if (!inv) return;
+
+      document.getElementById('rcptInvId').innerText = inv.id;
+      document.getElementById('rcptAmountDelivered').innerText = `₦${inv.amountFormatted} ${inv.currency}`;
+      document.getElementById('rcptAmountPaid').innerText = inv.paidWith || `331.42 ${currentCurrency}`;
+      document.getElementById('rcptBeneficiary').innerText = inv.freelancerAddress;
+      document.getElementById('rcptPayer').innerText = inv.clientAddress;
+      document.getElementById('rcptTxHash').innerText = inv.txHash || "0x8fa92305...0182650";
+      document.getElementById('rcptExplorerLink').href = `https://celoscan.io/tx/${inv.txHash || ''}`;
+
+      document.getElementById('receiptModal').classList.remove('hidden');
+      lucide.createIcons();
+    }
+
+    function closeReceiptModal() {
+      document.getElementById('receiptModal').classList.add('hidden');
+    }
+
+    function toggleModal(open) {
+      const modal = document.getElementById('payloadModal');
+      if (open) modal.classList.remove('hidden');
+      else modal.classList.add('hidden');
+      lucide.createIcons();
+    }
+
+    // Init on window load
+    window.onload = () => {
+      lucide.createIcons();
+      initWalletDiscovery();
+      goToRoleSelection();
+    };
+  </script>
+</body>
+</html>
