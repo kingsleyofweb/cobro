@@ -179,3 +179,10 @@ npm run register:erc8004
 Record the printed `agentId`, `agentRegistry`, and transaction hashes in the
 hackathon submission. ERC-8004 is an identity/reputation discovery layer; it
 does not replace Cobro's payment or escrow contract.
+Agent name: Cobro Payment Agent
+Agent ID: 10041
+Network: Celo Mainnet
+Agent registry: eip155:42220:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432
+Owner wallet: 0x8FE84fca0553f9f6264E75139d24683A96B543D1
+Registration tx: https://celoscan.io/tx/0xd34afbb7bce6703bd0618afed5bcfac0f1b5af119889e9f59a3331a768d0b27e
+Metadata tx: https://celoscan.io/tx/0xe559f5c50a397a8760eee84c0da2ddcc21661a998182019e8897553bcf2bf6a5
