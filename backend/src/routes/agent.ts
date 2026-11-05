@@ -69,7 +69,7 @@ router.post("/quote", async (req: Request, res: Response) => {
       return;
     }
 
-    const invoice = getInvoice(invoiceId);
+    const invoice = await getInvoice(invoiceId);
     if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
     if (invoice.status === "PAID") { res.status(400).json({ error: "Invoice already paid" }); return; }
 
@@ -130,7 +130,7 @@ router.post("/execute", async (req: Request, res: Response) => {
       return;
     }
 
-    const invoice = getInvoice(invoiceId);
+    const invoice = await getInvoice(invoiceId);
     if (!invoice) { res.status(404).json({ error: "Invoice not found" }); return; }
     if (invoice.status === "PAID") { res.status(400).json({ error: "Invoice already paid" }); return; }
 
@@ -259,7 +259,7 @@ router.post("/execute", async (req: Request, res: Response) => {
 // Called by the frontend after client's MetaMask confirms the swap tx.
 // Body: { invoiceId, txHash, paidWith }
 // ---------------------------------------------------------------------------
-router.post("/confirm", (req: Request, res: Response) => {
+router.post("/confirm", async (req: Request, res: Response) => {
   const { invoiceId, txHash, paidWith } = req.body as {
     invoiceId?: string;
     txHash?: string;
@@ -271,7 +271,7 @@ router.post("/confirm", (req: Request, res: Response) => {
     return;
   }
 
-  const updated = markPaid(invoiceId, txHash, paidWith || "");
+  const updated = await markPaid(invoiceId, txHash, paidWith || "");
   if (!updated) {
     res.status(404).json({ error: "Invoice not found" });
     return;
@@ -289,8 +289,8 @@ router.post("/confirm", (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 // GET /api/agent/status/:invoiceId
 // ---------------------------------------------------------------------------
-router.get("/status/:invoiceId", (req: Request, res: Response) => {
-  const invoice = getInvoice(req.params.invoiceId as string);
+router.get("/status/:invoiceId", async (req: Request, res: Response) => {
+  const invoice = await getInvoice(req.params.invoiceId as string);
   if (!invoice) {
     res.status(404).json({ error: "Invoice not found" });
     return;

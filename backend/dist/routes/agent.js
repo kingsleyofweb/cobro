@@ -53,7 +53,7 @@ router.post("/quote", async (req, res) => {
             res.status(400).json({ error: "invoiceId is required" });
             return;
         }
-        const invoice = (0, invoiceStore_1.getInvoice)(invoiceId);
+        const invoice = await (0, invoiceStore_1.getInvoice)(invoiceId);
         if (!invoice) {
             res.status(404).json({ error: "Invoice not found" });
             return;
@@ -112,7 +112,7 @@ router.post("/execute", async (req, res) => {
             });
             return;
         }
-        const invoice = (0, invoiceStore_1.getInvoice)(invoiceId);
+        const invoice = await (0, invoiceStore_1.getInvoice)(invoiceId);
         if (!invoice) {
             res.status(404).json({ error: "Invoice not found" });
             return;
@@ -236,13 +236,13 @@ router.post("/execute", async (req, res) => {
 // Called by the frontend after client's MetaMask confirms the swap tx.
 // Body: { invoiceId, txHash, paidWith }
 // ---------------------------------------------------------------------------
-router.post("/confirm", (req, res) => {
+router.post("/confirm", async (req, res) => {
     const { invoiceId, txHash, paidWith } = req.body;
     if (!invoiceId || !txHash) {
         res.status(400).json({ error: "invoiceId and txHash are required" });
         return;
     }
-    const updated = (0, invoiceStore_1.markPaid)(invoiceId, txHash, paidWith || "");
+    const updated = await (0, invoiceStore_1.markPaid)(invoiceId, txHash, paidWith || "");
     if (!updated) {
         res.status(404).json({ error: "Invoice not found" });
         return;
@@ -258,8 +258,8 @@ router.post("/confirm", (req, res) => {
 // ---------------------------------------------------------------------------
 // GET /api/agent/status/:invoiceId
 // ---------------------------------------------------------------------------
-router.get("/status/:invoiceId", (req, res) => {
-    const invoice = (0, invoiceStore_1.getInvoice)(req.params.invoiceId);
+router.get("/status/:invoiceId", async (req, res) => {
+    const invoice = await (0, invoiceStore_1.getInvoice)(req.params.invoiceId);
     if (!invoice) {
         res.status(404).json({ error: "Invoice not found" });
         return;

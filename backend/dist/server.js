@@ -9,6 +9,8 @@ const express_1 = __importDefault(require("express"));
 const helmet_1 = __importDefault(require("helmet"));
 const invoices_1 = __importDefault(require("./routes/invoices"));
 const agent_1 = __importDefault(require("./routes/agent"));
+const users_1 = __importDefault(require("./routes/users"));
+const notifications_1 = __importDefault(require("./routes/notifications"));
 const wallet_1 = require("./agent/wallet");
 const app = (0, express_1.default)();
 const port = Number(process.env.PORT || 4000);
@@ -26,6 +28,8 @@ app.get("/health", (_req, res) => {
 });
 // ── Invoice persistence ──────────────────────────────────────────────────────
 app.use("/api/invoices", invoices_1.default);
+app.use("/api/users", users_1.default);
+app.use("/api/notifications", notifications_1.default);
 // ── Autonomous payment agent ─────────────────────────────────────────────────
 app.use("/api/agent", agent_1.default);
 // ── Textile RFQ proxy (kept for direct frontend use / legacy) ────────────────

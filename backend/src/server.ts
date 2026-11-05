@@ -5,6 +5,8 @@ import helmet from "helmet";
 
 import invoiceRoutes from "./routes/invoices";
 import agentRoutes from "./routes/agent";
+import userRoutes from "./routes/users";
+import notificationRoutes from "./routes/notifications";
 import { executionMode } from "./agent/wallet";
 
 const app = express();
@@ -27,6 +29,8 @@ app.get("/health", (_req, res) => {
 
 // ── Invoice persistence ──────────────────────────────────────────────────────
 app.use("/api/invoices", invoiceRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // ── Autonomous payment agent ─────────────────────────────────────────────────
 app.use("/api/agent", agentRoutes);

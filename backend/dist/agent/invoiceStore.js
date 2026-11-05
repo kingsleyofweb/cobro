@@ -1,70 +1,39 @@
 "use strict";
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createInvoice = createInvoice;
 exports.getInvoice = getInvoice;
 exports.listInvoices = listInvoices;
 exports.markPaid = markPaid;
-/**
- * Invoice persistence layer — stores real invoices as a JSON file in backend/data/.
- */
-const fs_1 = __importDefault(require("fs"));
-const path_1 = __importDefault(require("path"));
-const DATA_DIR = path_1.default.resolve(__dirname, "../../data");
-const INVOICES_FILE = path_1.default.join(DATA_DIR, "invoices.json");
-function ensureDataDir() {
-    if (!fs_1.default.existsSync(DATA_DIR)) {
-        fs_1.default.mkdirSync(DATA_DIR, { recursive: true });
-    }
-}
-function readInvoices() {
-    ensureDataDir();
-    if (!fs_1.default.existsSync(INVOICES_FILE)) {
-        writeInvoices([]);
-        return [];
-    }
-    try {
-        return JSON.parse(fs_1.default.readFileSync(INVOICES_FILE, "utf-8"));
-    }
-    catch {
-        return [];
-    }
-}
-function writeInvoices(invoices) {
-    ensureDataDir();
-    fs_1.default.writeFileSync(INVOICES_FILE, JSON.stringify(invoices, null, 2), "utf-8");
-}
-function createInvoice(data) {
-    const invoices = readInvoices();
-    const idSuffix = String(invoices.length + 90).padStart(3, "0");
-    const invoice = {
-        ...data,
-        id: `INV-2026-${idSuffix}`,
-        amountFormatted: data.amount.toLocaleString("en-US"),
-        amountUnits: (data.amount * 1_000_000).toString(),
-        status: "UNPAID",
-        txHash: null,
-        paidWith: null,
-        createdAt: new Date().toISOString(),
+const db_1 = require("../db");
+function mapInvoice(row) {
+    return {
+        id: row.id, freelancerUsername: row.freelancer_username, freelancerAddress: row.freelancer_address,
+        clientUsername: row.client_username, description: row.description, currency: row.currency,
+        acceptedSettlementCurrencies: row.accepted_settlement_currencies, amount: Number(row.amount),
+        amountFormatted: Number(row.amount).toLocaleString("en-US"), amountUnits: row.amount_units,
+        dueDate: row.due_date instanceof Date ? row.due_date.toISOString().slice(0, 10) : row.due_date,
+        status: row.status, txHash: row.tx_hash, paidWith: row.paid_with,
+        createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
     };
-    invoices.unshift(invoice);
-    writeInvoices(invoices);
-    return invoice;
 }
-function getInvoice(id) {
-    return readInvoices().find((inv) => inv.id === id);
+async function createInvoice(data) {
+    const id = `INV-${new Date().getFullYear()}-${Date.now().toString(36).toUpperCase()}`;
+    const result = await db_1.db.query(`insert into invoices (id, freelancer_username, freelancer_address, client_username, description, currency, accepted_settlement_currencies, amount, amount_units, due_date)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) returning *`, [id, data.freelancerUsername, data.freelancerAddress, data.clientUsername, data.description, data.currency, data.acceptedSettlementCurrencies, data.amount, (data.amount * 1_000_000).toString(), data.dueDate]);
+    return mapInvoice(result.rows[0]);
 }
-function listInvoices() {
-    return readInvoices();
+async function getInvoice(id) {
+    const result = await db_1.db.query("select * from invoices where id = $1", [id]);
+    return result.rows[0] ? mapInvoice(result.rows[0]) : undefined;
 }
-function markPaid(id, txHash, paidWith) {
-    const invoices = readInvoices();
-    const idx = invoices.findIndex((inv) => inv.id === id);
-    if (idx === -1)
-        return undefined;
-    invoices[idx] = { ...invoices[idx], status: "PAID", txHash, paidWith };
-    writeInvoices(invoices);
-    return invoices[idx];
+async function listInvoices(walletAddress) {
+    const result = walletAddress
+        ? await db_1.db.query(`select i.* from invoices i left join users u on lower(u.username) = lower(i.client_username)
+      where lower(i.freelancer_address) = lower($1) or lower(u.wallet_address) = lower($1) order by i.created_at desc`, [walletAddress])
+        : await db_1.db.query("select * from invoices order by created_at desc");
+    return result.rows.map(mapInvoice);
+}
+async function markPaid(id, txHash, paidWith) {
+    const result = await db_1.db.query("update invoices set status = 'PAID', tx_hash = $2, paid_with = $3 where id = $1 returning *", [id, txHash, paidWith]);
+    return result.rows[0] ? mapInvoice(result.rows[0]) : undefined;
 }
