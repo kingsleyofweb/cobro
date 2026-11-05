@@ -877,33 +877,22 @@ export default function CobroApp() {
                   </div>
                 </div>
 
-                {/* Currency Buttons */}
+                {/* Route comparison is informational; the agent selects the cheapest accepted route. */}
                 <div className="grid grid-cols-2 gap-3 mb-5">
-                  <button 
-                    onClick={() => setSettlementCurrency("cNGN")}
+                  {(["cNGN", "USDC"] as const).map(currency => (
+                  <div
+                    key={currency}
                     className={`flex items-center justify-between p-3.5 rounded-xl border transition ${
-                      settlementCurrency === "cNGN" ? "border-celo-green bg-celo-green/10 text-white font-medium" : "border-gray-800 bg-gray-950/50 text-gray-400 hover:border-gray-700"
+                      agentQuote?.bestSettlementCurrency === currency ? "border-celo-green bg-celo-green/10 text-white font-medium" : "border-gray-800 bg-gray-950/50 text-gray-400"
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
-                      <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center">₮</span>
-                      <span>cNGN</span>
+                      <span className={`w-6 h-6 rounded-full font-bold text-xs flex items-center justify-center ${currency === "cNGN" ? "bg-emerald-500/20 text-emerald-400" : "bg-blue-500/20 text-blue-400"}`}>{currency === "cNGN" ? "₮" : "$"}</span>
+                      <span>{currency}</span>
                     </div>
-                    <span className="text-[11px] text-gray-400">Local payout</span>
-                  </button>
-
-                  <button 
-                    onClick={() => setSettlementCurrency("USDC")}
-                    className={`flex items-center justify-between p-3.5 rounded-xl border transition ${
-                      settlementCurrency === "USDC" ? "border-celo-green bg-celo-green/10 text-white font-medium" : "border-gray-800 bg-gray-950/50 text-gray-400 hover:border-gray-700"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 font-bold text-xs flex items-center justify-center">$</span>
-                      <span>USDC</span>
-                    </div>
-                    <span className="text-[11px] text-gray-400">USD payout</span>
-                  </button>
+                    <span className="text-[11px] text-gray-400">{agentQuote?.bestSettlementCurrency === currency ? "Agent selected" : "Alternative"}</span>
+                  </div>
+                  ))}
                 </div>
 
                 {/* Conversion Box */}
@@ -973,6 +962,36 @@ export default function CobroApp() {
                   </div>
                 )}
 
+                {/* Agent decision is visible before payment begins. */}
+                {agentQuote && (
+                  <div className="mb-5 bg-indigo-950/40 border border-indigo-800/50 rounded-xl p-4 space-y-3">
+                    <div className="flex items-center gap-2 text-xs font-bold text-indigo-200">
+                      <TrendingDown className="w-3.5 h-3.5 text-indigo-400" />
+                      Agent FX Analysis — Best Route Selected
+                    </div>
+                    <div className="grid grid-cols-2 gap-2 text-xs">
+                      {(["cNGN", "USDC"] as const).map(currency => {
+                        const corridor = agentQuote.settlements[currency];
+                        if (!corridor) return null;
+                        const isBest = agentQuote.bestSettlementCurrency === currency;
+                        return (
+                          <div key={currency} className={`p-2.5 rounded-lg border ${isBest ? "border-celo-green/50 bg-celo-green/10" : "border-gray-800 bg-gray-900/50"}`}>
+                            <div className="flex items-center justify-between mb-1">
+                              <span className="font-semibold text-gray-300">USDT → {currency}</span>
+                              {isBest && <span className="text-[9px] px-1.5 py-0.5 rounded bg-celo-green/20 text-celo-green font-bold">BEST</span>}
+                            </div>
+                            <div className={`font-black text-sm ${isBest ? "text-celo-green" : "text-gray-400"}`}>
+                              {corridor.available ? `${corridor.estimatedSellAmountFormatted} USDT` : "Unavailable"}
+                            </div>
+                            <div className="text-[10px] text-gray-500 mt-0.5">{corridor.available ? `Exact output: ${corridor.estimatedBuyAmountFormatted} ${currency}` : corridor.reason}</div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <p className="text-[11px] text-indigo-300 italic">{agentQuote.savings}</p>
+                  </div>
+                )}
+
                 {/* Payment Action or Settlement Pipeline */}
                 {paymentStep > 0 ? (
                   <div className="bg-gray-950 border border-gray-800 rounded-xl p-5 space-y-4">
@@ -980,44 +999,6 @@ export default function CobroApp() {
                       <Bot className="w-4 h-4 text-celo-green" />
                       Cobro Agent Processing Payment...
                     </h4>
-
-                    {/* Agent FX Analysis — shown once quote returns */}
-                    {agentQuote && paymentStep >= 1 && (
-                      <div className="bg-indigo-950/40 border border-indigo-800/50 rounded-xl p-4 space-y-3">
-                        <div className="flex items-center gap-2 text-xs font-bold text-indigo-200">
-                          <TrendingDown className="w-3.5 h-3.5 text-indigo-400" />
-                          Agent FX Analysis — Best Route Selected
-                        </div>
-                        <div className="grid grid-cols-2 gap-2 text-xs">
-                          {(["cNGN", "USDC"] as const).map(c => {
-                            const corridor = agentQuote.settlements[c];
-                            if (!corridor) return null;
-                            const isBest = agentQuote.bestSettlementCurrency === corridor.settlementCurrency;
-                            return (
-                              <div key={c} className={`p-2.5 rounded-lg border ${
-                                isBest
-                                  ? "border-celo-green/50 bg-celo-green/10"
-                                  : "border-gray-800 bg-gray-900/50"
-                              }`}>
-                                <div className="flex items-center justify-between mb-1">
-                                  <span className="font-semibold text-gray-300">{c}</span>
-                                  {isBest && (
-                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-celo-green/20 text-celo-green font-bold">BEST</span>
-                                  )}
-                                </div>
-                                <div className={`font-black text-sm ${ isBest ? "text-celo-green" : "text-gray-400" }`}>
-                                  {corridor.available ? `${corridor.estimatedSellAmountFormatted} USDT` : "Unavailable"}
-                                </div>
-                                <div className="text-[10px] text-gray-500 mt-0.5">
-                                  {corridor.available ? `Output: ${corridor.estimatedBuyAmountFormatted} ${c}` : corridor.reason}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                        <p className="text-[11px] text-indigo-300 italic">{agentQuote.savings}</p>
-                      </div>
-                    )}
 
                     <div className="space-y-3 text-xs">
                       <div className="flex items-center gap-3">
