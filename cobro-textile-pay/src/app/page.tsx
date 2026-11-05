@@ -213,7 +213,17 @@ export default function CobroApp() {
     }
 
     try {
-      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const ethereum = (window as any).ethereum;
+      // Read the chain directly before creating ethers' provider. Creating a
+      // provider on chain 1 and then switching it underneath ethers causes
+      // NETWORK_ERROR: "network changed: 1 => 42220".
+      const currentChainId = Number.parseInt(await ethereum.request({ method: "eth_chainId" }), 16);
+      if (currentChainId !== CELO_CHAIN_CONFIG.chainId) {
+        await switchToCelo();
+      }
+
+      // Create a fresh provider after the wallet has settled on Celo.
+      const provider = new ethers.BrowserProvider(ethereum);
       const accounts = await provider.send("eth_requestAccounts", []);
       setConnectedAddress(accounts[0]);
       setProfileWallet(accounts[0]);
@@ -222,14 +232,8 @@ export default function CobroApp() {
       setChainId(cId);
 
       if (cId !== CELO_CHAIN_CONFIG.chainId) {
-        await switchToCelo();
-        const switchedNetwork = await provider.getNetwork();
-        const switchedChainId = Number(switchedNetwork.chainId);
-        setChainId(switchedChainId);
-        if (switchedChainId !== CELO_CHAIN_CONFIG.chainId) {
-          showWalletDialog("Switch to Celo Mainnet", "Cobro payments run on Celo Mainnet. Approve the network switch in MetaMask to continue.");
-          return false;
-        }
+        showWalletDialog("Switch to Celo Mainnet", "Cobro payments run on Celo Mainnet. Approve the network switch in MetaMask to continue.");
+        return false;
       }
 
       const tokenAddr = CELO_CHAIN_CONFIG.tokens[sellTokenSymbol].address;
