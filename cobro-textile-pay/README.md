@@ -159,3 +159,23 @@ npm install
 npm run dev
 ```
 Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## 8. ERC-8004 agent identity (Celo mainnet)
+
+Cobro can be registered as a discoverable ERC-8004 agent on Celo mainnet. The
+registration script mints an identity, creates the registration metadata, and
+sets the metadata URI on-chain as a self-contained `data:` URI.
+
+Before running it, set `AGENT_PRIVATE_KEY` to a dedicated Celo wallet funded
+with a small amount of CELO for gas. Set `AGENT_PUBLIC_URL` to the deployed
+frontend URL and, if the API is deployed separately, set `AGENT_API_URL` to
+the deployed backend URL.
+
+```bash
+cd backend
+npm run register:erc8004
+```
+
+Record the printed `agentId`, `agentRegistry`, and transaction hashes in the
+hackathon submission. ERC-8004 is an identity/reputation discovery layer; it
+does not replace Cobro's payment or escrow contract.

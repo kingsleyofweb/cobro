@@ -3,6 +3,10 @@ import cors from "cors";
 import express, { Request, Response } from "express";
 import helmet from "helmet";
 
+import invoiceRoutes from "./routes/invoices";
+import agentRoutes from "./routes/agent";
+import { executionMode } from "./agent/wallet";
+
 const app = express();
 const port = Number(process.env.PORT || 4000);
 const textileApiBase = "https://api.textilecredit.com/v2";
@@ -16,10 +20,18 @@ app.use(helmet());
 app.use(cors({ origin: allowedOrigins }));
 app.use(express.json({ limit: "1mb" }));
 
+// Health check
 app.get("/health", (_req, res) => {
   res.json({ status: "ok", service: "cobro-backend" });
 });
 
+// ── Invoice persistence ──────────────────────────────────────────────────────
+app.use("/api/invoices", invoiceRoutes);
+
+// ── Autonomous payment agent ─────────────────────────────────────────────────
+app.use("/api/agent", agentRoutes);
+
+// ── Textile RFQ proxy (kept for direct frontend use / legacy) ────────────────
 async function proxyToTextile(
   path: string,
   body: unknown,
@@ -68,5 +80,16 @@ app.post("/api/rfq/:quoteId/submit", async (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Cobro backend listening on http://localhost:${port}`);
+  const mode = executionMode();
+  const modeLabel = {
+    live:        "🔴 LIVE       (agent signs Textile txns autonomously)",
+    assisted:    "🟠 ASSISTED   (client MetaMask signs Textile txns)",
+    simulation:  "🟡 SIMULATION (fake txHash — set TEXTILE_API_KEY for real rates)",
+  }[mode];
+
+  console.log(`\n🚀 Cobro backend listening on http://localhost:${port}`);
+  console.log(`   Agent mode:   ${modeLabel}`);
+  console.log(`   Textile key:  ${process.env.TEXTILE_API_KEY ? "✅ set — live market rates" : "⬜ not set — simulated rates"}`);
+  console.log(`   Agent wallet: ${process.env.AGENT_PRIVATE_KEY ? "✅ set — autonomous execution" : "⬜ not set — client signs"}`);
+  console.log(`   RPC:          ${process.env.CELO_RPC_URL || "https://forno.celo.org (default)"}\n`);
 });

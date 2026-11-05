@@ -3,6 +3,14 @@
 import { useState, useEffect } from "react";
 import { ethers } from "ethers";
 import { CELO_CHAIN_CONFIG } from "../config/celo";
+import {
+  getAgentQuote,
+  executeAgentPayment,
+  fetchInvoices,
+  createInvoiceApi,
+  confirmPayment,
+  type AgentQuoteResponse,
+} from "../services/agentApi";
 import { 
   ArrowRight, 
   ShieldCheck, 
@@ -21,7 +29,9 @@ import {
   LogOut, 
   Info,
   FileCheck,
-  Printer
+  Printer,
+  Bot,
+  TrendingDown,
 } from "lucide-react";
 
 interface Invoice {
@@ -85,7 +95,19 @@ export default function CobroApp() {
   const [role, setRole] = useState<"freelancer" | "client" | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
   const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>("INV-2026-089");
-  
+
+  // ── Freelancer Profile ─────────────────────────────────────────────────────
+  const [freelancerProfile, setFreelancerProfile] = useState<{
+    username: string;
+    walletAddress: string;
+    displayName: string;
+  } | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileUsername, setProfileUsername] = useState("");
+  const [profileDisplayName, setProfileDisplayName] = useState("");
+  const [profileWallet, setProfileWallet] = useState("");
+  const [profileConnecting, setProfileConnecting] = useState(false);
+
   // Payment State
   const [sellTokenSymbol, setSellTokenSymbol] = useState<"USDT" | "USDC">("USDT");
   const [timeLeft, setTimeLeft] = useState<number>(60);
@@ -96,6 +118,8 @@ export default function CobroApp() {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [showPayloadModal, setShowPayloadModal] = useState(false);
   const [showReceiptModal, setShowReceiptModal] = useState(false);
+  // Agent State
+  const [agentQuote, setAgentQuote] = useState<AgentQuoteResponse | null>(null);
 
   // Web3 State
   const [connectedAddress, setConnectedAddress] = useState<string | null>(null);
@@ -113,11 +137,49 @@ export default function CobroApp() {
 
   const activeInvoice = invoices.find(i => i.id === selectedInvoiceId) || invoices[0];
 
-  // Rate calculation
+  // Rate calculation — prefer live agent quote, fall back to estimate
   const baseRate = sellTokenSymbol === "USDT" ? 1515.20 : 1512.80;
-  const calculatedSellAmount = activeInvoice 
-    ? ((activeInvoice.amount / baseRate) * 1.0001).toFixed(2)
-    : "0.00";
+  const bestCorridor = agentQuote?.bestCorridor ?? sellTokenSymbol;
+  const calculatedSellAmount = agentQuote
+    ? agentQuote.corridors[bestCorridor].estimatedSellAmountFormatted
+    : activeInvoice
+      ? ((activeInvoice.amount / baseRate) * 1.0001).toFixed(2)
+      : "0.00";
+
+  // Load freelancer profile from localStorage on mount
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem("cobro_freelancer_profile");
+      if (saved) {
+        const p = JSON.parse(saved);
+        setFreelancerProfile(p);
+        setProfileUsername(p.username || "");
+        setProfileDisplayName(p.displayName || "");
+        setProfileWallet(p.walletAddress || "");
+      }
+    } catch {}
+  }, []);
+
+  // Fetch persisted invoices from backend on mount
+  useEffect(() => {
+    fetchInvoices().then((data) => {
+      if (data && data.length > 0) {
+        setInvoices(data as any);
+        setSelectedInvoiceId(data[0].id);
+      }
+    });
+  }, []);
+
+  // Fetch agent quote preview whenever the client view opens or invoice changes
+  useEffect(() => {
+    if (role !== "client" || !activeInvoice || activeInvoice.status === "PAID") {
+      setAgentQuote(null);
+      return;
+    }
+    getAgentQuote(activeInvoice.id, connectedAddress ?? undefined)
+      .then(setAgentQuote)
+      .catch(() => {}); // silent — UI falls back to estimate
+  }, [role, selectedInvoiceId]);
 
   // 60-second TTL timer
   useEffect(() => {
@@ -162,59 +224,115 @@ export default function CobroApp() {
 
   const switchToCelo = async () => {
     if (typeof window === "undefined" || !(window as any).ethereum) return;
+    const hexChainId = "0x" + CELO_CHAIN_CONFIG.chainId.toString(16);
     try {
       await (window as any).ethereum.request({
         method: "wallet_switchEthereumChain",
-        params: [{ chainId: "0xa4ec" }], // 42220
+        params: [{ chainId: hexChainId }],
       });
     } catch (switchError: any) {
       if (switchError.code === 4902) {
         await (window as any).ethereum.request({
           method: "wallet_addEthereumChain",
           params: [{
-            chainId: "0xa4ec",
-            chainName: "Celo Mainnet",
+            chainId: hexChainId,
+            chainName: CELO_CHAIN_CONFIG.name,
             nativeCurrency: { name: "CELO", symbol: "CELO", decimals: 18 },
-            rpcUrls: ["https://forno.celo.org"],
-            blockExplorerUrls: ["https://celoscan.io"]
+            rpcUrls: [CELO_CHAIN_CONFIG.rpcUrl],
+            blockExplorerUrls: [CELO_CHAIN_CONFIG.explorerUrl],
           }],
         });
       }
     }
   };
 
-  // Handle Invoice Creation
-  const handleGenerateInvoice = (e: React.FormEvent) => {
+  // ── Freelancer: connect wallet for profile ─────────────────────────────────
+  const connectFreelancerWallet = async () => {
+    if (!(window as any).ethereum) {
+      alert("Please install MetaMask to connect your wallet.");
+      return;
+    }
+    setProfileConnecting(true);
+    try {
+      const accounts = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
+      setProfileWallet(accounts[0]);
+    } catch (err) {
+      console.warn("Freelancer wallet connect failed:", err);
+    } finally {
+      setProfileConnecting(false);
+    }
+  };
+
+  const saveFreelancerProfile = () => {
+    if (!profileUsername.trim() || !profileWallet) {
+      alert("Please enter a username and connect your wallet.");
+      return;
+    }
+    const profile = {
+      username: profileUsername.trim().replace(/^@/, ""),
+      displayName: profileDisplayName.trim() || profileUsername.trim(),
+      walletAddress: profileWallet,
+    };
+    setFreelancerProfile(profile);
+    localStorage.setItem("cobro_freelancer_profile", JSON.stringify(profile));
+    setShowProfileModal(false);
+  };
+
+  const disconnectFreelancerProfile = () => {
+    setFreelancerProfile(null);
+    setProfileWallet("");
+    localStorage.removeItem("cobro_freelancer_profile");
+  };
+
+  // Handle Invoice Creation — persists to backend, falls back to local state
+  const handleGenerateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formClientName || !formAmount || !formDescription) return;
 
     const numAmount = parseFloat(formAmount);
-    const newId = `INV-2026-0${invoices.length + 90}`;
-    const newInv: Invoice = {
-      id: newId,
-      clientName: formClientName,
-      clientAddress: formClientAddress,
-      freelancerName: "Amara Okonkwo",
-      freelancerAddress: "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
-      description: formDescription,
-      currency: formCurrency,
-      amount: numAmount,
-      amountFormatted: numAmount.toLocaleString(),
-      dueDate: formDueDate,
-      status: "UNPAID",
-      txHash: null,
-      paidWith: null
-    };
 
-    setInvoices([newInv, ...invoices]);
-    setSelectedInvoiceId(newId);
+    try {
+      const saved = await createInvoiceApi({
+        freelancerName: freelancerProfile?.displayName || "Freelancer",
+        freelancerAddress: freelancerProfile?.walletAddress || "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
+        clientName: formClientName,
+        clientAddress: formClientAddress,
+        description: formDescription,
+        currency: formCurrency,
+        amount: numAmount,
+        dueDate: formDueDate,
+      });
+      setInvoices(prev => [saved as any, ...prev]);
+      setSelectedInvoiceId(saved.id);
+    } catch {
+      // Backend unavailable — fall back to local state
+      const newId = `INV-2026-0${invoices.length + 90}`;
+      const newInv: Invoice = {
+        id: newId,
+        clientName: formClientName,
+        clientAddress: formClientAddress,
+        freelancerName: freelancerProfile?.displayName || "Freelancer",
+        freelancerAddress: freelancerProfile?.walletAddress || "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
+        description: formDescription,
+        currency: formCurrency,
+        amount: numAmount,
+        amountFormatted: numAmount.toLocaleString(),
+        dueDate: formDueDate,
+        status: "UNPAID",
+        txHash: null,
+        paidWith: null
+      };
+      setInvoices(prev => [newInv, ...prev]);
+      setSelectedInvoiceId(newId);
+    }
+
     setShowCreateModal(false);
     setFormClientName("");
     setFormDescription("");
     setFormAmount("");
   };
 
-  // Handle Payment Execution
+  // Handle Payment Execution — supports simulation, assisted, and live agent modes
   const handleExecutePayment = async () => {
     if (!activeInvoice || activeInvoice.status === "PAID") return;
 
@@ -223,93 +341,88 @@ export default function CobroApp() {
         await connectWallet();
         return;
       }
-
       if (chainId !== CELO_CHAIN_CONFIG.chainId) {
         await switchToCelo();
         return;
       }
-
-      setIsPaying(true);
-      setPaymentStep(1);
-      setStepMessage("Permit2 allowance verified. Prompting wallet signature...");
-
-      try {
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
-        const signer = await provider.getSigner();
-        const tokenAddr = CELO_CHAIN_CONFIG.tokens[sellTokenSymbol].address;
-        const tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, signer);
-        const amountUnits = ethers.parseUnits(calculatedSellAmount, 6);
-
-        setPaymentStep(2);
-        setStepMessage("Sign transaction in your Web3 wallet...");
-        const tx = await tokenContract.transfer(activeInvoice.freelancerAddress, amountUnits);
-
-        setStepMessage(`Broadcasting transaction to Celo: ${tx.hash.slice(0, 10)}...`);
-        const receipt = await tx.wait(1);
-
-        setPaymentStep(3);
-        setTxHash(receipt.hash);
-        setIsPaying(false);
-
-        // Update status
-        setInvoices(prev => prev.map(inv => {
-          if (inv.id === activeInvoice.id) {
-            return {
-              ...inv,
-              status: "PAID",
-              txHash: receipt.hash,
-              paidWith: `${calculatedSellAmount} ${sellTokenSymbol}`
-            };
-          }
-          return inv;
-        }));
-      } catch (err: any) {
-        console.error("Payment failed:", err);
-        setIsPaying(false);
-        setPaymentStep(0);
-        if (err.code === "ACTION_REJECTED") {
-          alert("Transaction cancelled in wallet.");
-        } else {
-          const fallback = confirm("Live transaction note: Insufficient test funds or gas on Celo Mainnet.\n\nWould you like to complete payment in Instant Simulator mode?");
-          if (fallback) {
-            setPaymentMode("sim");
-            runSimulatorPayment();
-          }
-        }
-      }
-      return;
     }
 
-    runSimulatorPayment();
+    setIsPaying(true);
+    setAgentQuote(null);
+
+    try {
+      // ── Step 1: Agent analyzes both FX corridors ───────────────────────
+      setPaymentStep(1);
+      setStepMessage("Querying USDT & USDC corridors via Textile FX...");
+
+      const quote = await getAgentQuote(
+        activeInvoice.id,
+        connectedAddress ?? undefined,
+      );
+      setAgentQuote(quote);
+
+      // ── Step 2: Request firm Textile quote + execute ──────────────────
+      setPaymentStep(2);
+      setStepMessage(`Requesting firm 60s Textile quote...`);
+
+      const result = await executeAgentPayment(
+        activeInvoice.id,
+        quote.bestCorridor,
+        connectedAddress ?? undefined,
+      );
+
+      let finalTxHash = result.txHash ?? "";
+
+      // ── ASSISTED MODE: client wallet signs approval + swap ────────────
+      if (result.mode === "assisted" && result.approvalTx && result.swapTx) {
+        const provider = new ethers.BrowserProvider((window as any).ethereum);
+        const signer = await provider.getSigner();
+
+        setStepMessage(`Approving ${result.corridor} spend for CobroRouter... (1/2)`);
+        const approveTx = await signer.sendTransaction({
+          to: result.approvalTx.to,
+          data: result.approvalTx.data,
+        });
+        await approveTx.wait(1);
+
+        setStepMessage(`Executing Textile FX swap on Celo Mainnet... (2/2)`);
+        const swapTx = await signer.sendTransaction({
+          to: result.swapTx.to,
+          data: result.swapTx.data,
+        });
+        const receipt = await swapTx.wait(1);
+        finalTxHash = receipt?.hash ?? swapTx.hash;
+
+        // Record the confirmed txHash on the backend
+        await confirmPayment(activeInvoice.id, finalTxHash, result.paidWith);
+      }
+
+      // ── Step 3: Confirmed ──────────────────────────────────────────────
+      setPaymentStep(3);
+      setTxHash(finalTxHash);
+      setIsPaying(false);
+
+      setInvoices(prev =>
+        prev.map(inv =>
+          inv.id === activeInvoice.id
+            ? { ...inv, status: "PAID", txHash: finalTxHash, paidWith: result.paidWith }
+            : inv,
+        ),
+      );
+    } catch (err: any) {
+      console.error("Agent payment failed:", err);
+      setIsPaying(false);
+      setPaymentStep(0);
+      const msg = err.code === "ACTION_REJECTED"
+        ? "Transaction cancelled in wallet."
+        : `Payment error: ${err.message || "Unknown error"}`;
+      alert(msg);
+    }
   };
 
+  // Kept for backward compat — main flow now goes through handleExecutePayment
   const runSimulatorPayment = () => {
-    setIsPaying(true);
-    setPaymentStep(1);
-    setStepMessage("Verifying Permit2 allowance...");
-
-    setTimeout(() => {
-      setPaymentStep(2);
-      setStepMessage("Submitting LimitOrderReactor execution on Celo...");
-      setTimeout(() => {
-        setPaymentStep(3);
-        const randomHash = "0x" + Array.from({ length: 64 }, () => Math.floor(Math.random() * 16).toString(16)).join("");
-        setTxHash(randomHash);
-        setIsPaying(false);
-
-        setInvoices(prev => prev.map(inv => {
-          if (inv.id === activeInvoice.id) {
-            return {
-              ...inv,
-              status: "PAID",
-              txHash: randomHash,
-              paidWith: `${calculatedSellAmount} ${sellTokenSymbol}`
-            };
-          }
-          return inv;
-        }));
-      }, 1200);
-    }, 1200);
+    handleExecutePayment();
   };
 
   return (
@@ -322,7 +435,7 @@ export default function CobroApp() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-              Cobro <span className="text-xs px-2.5 py-0.5 rounded-full bg-celo-green/10 text-celo-green border border-celo-green/30">Celo (42220)</span>
+              Cobro <span className="text-xs px-2.5 py-0.5 rounded-full bg-celo-green/10 text-celo-green border border-celo-green/30">{CELO_CHAIN_CONFIG.name}{(CELO_CHAIN_CONFIG as any).isTestnet && " 🧪"}</span>
             </h1>
             <p className="text-xs text-gray-400">Freelance Invoicing & FX Settlement via Textile</p>
           </div>
@@ -333,6 +446,20 @@ export default function CobroApp() {
             <Zap className="w-3.5 h-3.5 text-indigo-400" />
             Powered by <strong>Textile FX</strong>
           </div>
+
+          {/* Freelancer Profile Badge */}
+          {freelancerProfile && role === "freelancer" && (
+            <button
+              onClick={() => setShowProfileModal(true)}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-celo-green/10 border border-celo-green/30 text-celo-green text-xs font-medium hover:bg-celo-green/20 transition-colors"
+            >
+              <div className="w-5 h-5 rounded-full bg-celo-green flex items-center justify-center text-black font-black text-[10px]">
+                {freelancerProfile.username[0].toUpperCase()}
+              </div>
+              @{freelancerProfile.username}
+              <span className="text-celo-green/60 font-mono">{freelancerProfile.walletAddress.slice(0,4)}…{freelancerProfile.walletAddress.slice(-3)}</span>
+            </button>
+          )}
 
           {role && (
             <div className="flex items-center gap-2">
@@ -506,7 +633,7 @@ export default function CobroApp() {
                               Receipt <FileCheck className="w-3 h-3" />
                             </button>
                             <a 
-                              href={`https://celoscan.io/tx/${inv.txHash}`} 
+                              href={`${CELO_CHAIN_CONFIG.explorerUrl}/tx/${inv.txHash}`} 
                               target="_blank" 
                               rel="noreferrer"
                               className="text-celo-green hover:underline flex items-center gap-1 font-semibold text-xs"
@@ -687,13 +814,13 @@ export default function CobroApp() {
                 {/* Conversion Box */}
                 <div className="bg-gray-950 border border-gray-800 rounded-xl p-5 mb-5 space-y-3">
                   <div className="flex items-center justify-between text-xs text-gray-400">
-                    <span>Client Pays (Priced by Textile Makers)</span>
+                    <span>Client Pays (Agent-Selected Best Rate)</span>
                     <span>Freelancer Gets (Exact)</span>
                   </div>
 
                   <div className="flex items-center justify-between">
                     <div className="text-2xl font-black text-white tracking-tight">
-                      {calculatedSellAmount} <span className="text-sm font-semibold text-gray-400">{sellTokenSymbol}</span>
+                      {calculatedSellAmount} <span className="text-sm font-semibold text-gray-400">{bestCorridor}</span>
                     </div>
                     <ArrowRight className="w-5 h-5 text-gray-600" />
                     <div className="text-2xl font-black text-celo-green tracking-tight">
@@ -702,7 +829,16 @@ export default function CobroApp() {
                   </div>
 
                   <div className="pt-3 border-t border-gray-800/80 grid grid-cols-2 text-xs text-gray-400 gap-y-1.5">
-                    <div>Textile Rate: <span className="text-gray-200 font-mono">1 {sellTokenSymbol} ≈ {baseRate.toFixed(2)} cNGN</span></div>
+                    <div className="flex items-center gap-1">
+                      {agentQuote ? (
+                        <span className="text-indigo-300 flex items-center gap-1">
+                          <Bot className="w-3 h-3" /> Agent rate:
+                          <span className="text-gray-200 font-mono ml-1">1 {bestCorridor} ≈ {agentQuote.corridors[bestCorridor].effectiveRate.toFixed(2)} cNGN</span>
+                        </span>
+                      ) : (
+                        <span>Textile Rate: <span className="text-gray-200 font-mono">1 {bestCorridor} ≈ {baseRate.toFixed(2)} cNGN</span></span>
+                      )}
+                    </div>
                     <div className="text-right">Taker Fee: <span className="text-gray-200 font-mono">1 bps (0.01%)</span></div>
                     <div>Celo Gas: <span className="text-celo-green font-mono">&lt; $0.001</span></div>
                     <div className="text-right">Atomic Settlement: <span className="text-indigo-400 font-medium">UniswapX Reactor</span></div>
@@ -742,7 +878,7 @@ export default function CobroApp() {
                       <span className={`text-[10px] px-2 py-0.5 rounded font-mono ${
                         chainId === CELO_CHAIN_CONFIG.chainId ? "bg-celo-green/10 text-celo-green border border-celo-green/30" : "bg-gray-900 text-gray-400 border border-gray-800"
                       }`}>
-                        {chainId === CELO_CHAIN_CONFIG.chainId ? "Celo (42220)" : "Switch to Celo"}
+                        {chainId === CELO_CHAIN_CONFIG.chainId ? CELO_CHAIN_CONFIG.name : `Switch to ${CELO_CHAIN_CONFIG.name}`}
                       </span>
                     </div>
                     <div className="flex items-center justify-between pt-1 border-t border-gray-900 text-[11px]">
@@ -753,7 +889,7 @@ export default function CobroApp() {
                         </button>
                       ) : chainId !== CELO_CHAIN_CONFIG.chainId ? (
                         <button onClick={switchToCelo} className="text-amber-400 hover:underline font-semibold">
-                          Switch Chain to Celo
+                          Switch to {CELO_CHAIN_CONFIG.name}
                         </button>
                       ) : (
                         <span className="text-celo-green font-medium">Ready on Celo</span>
@@ -766,28 +902,66 @@ export default function CobroApp() {
                 {paymentStep > 0 ? (
                   <div className="bg-gray-950 border border-gray-800 rounded-xl p-5 space-y-4">
                     <h4 className="text-xs font-bold text-white flex items-center gap-2">
-                      <ShieldCheck className="w-4 h-4 text-celo-green" />
-                      Settling via Textile FX on Celo...
+                      <Bot className="w-4 h-4 text-celo-green" />
+                      Cobro Agent Processing Payment...
                     </h4>
+
+                    {/* Agent FX Analysis — shown once quote returns */}
+                    {agentQuote && paymentStep >= 1 && (
+                      <div className="bg-indigo-950/40 border border-indigo-800/50 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center gap-2 text-xs font-bold text-indigo-200">
+                          <TrendingDown className="w-3.5 h-3.5 text-indigo-400" />
+                          Agent FX Analysis — Best Route Selected
+                        </div>
+                        <div className="grid grid-cols-2 gap-2 text-xs">
+                          {(["USDT", "USDC"] as const).map(c => {
+                            const corridor = agentQuote.corridors[c];
+                            const isBest = agentQuote.bestCorridor === c;
+                            return (
+                              <div key={c} className={`p-2.5 rounded-lg border ${
+                                isBest
+                                  ? "border-celo-green/50 bg-celo-green/10"
+                                  : "border-gray-800 bg-gray-900/50"
+                              }`}>
+                                <div className="flex items-center justify-between mb-1">
+                                  <span className="font-semibold text-gray-300">{c}</span>
+                                  {isBest && (
+                                    <span className="text-[9px] px-1.5 py-0.5 rounded bg-celo-green/20 text-celo-green font-bold">BEST</span>
+                                  )}
+                                </div>
+                                <div className={`font-black text-sm ${ isBest ? "text-celo-green" : "text-gray-400" }`}>
+                                  {corridor.estimatedSellAmountFormatted}
+                                  <span className="text-xs font-normal ml-0.5">{c}</span>
+                                </div>
+                                <div className="text-[10px] text-gray-500 mt-0.5">
+                                  ₦{corridor.effectiveRate.toFixed(2)}/{c}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        <p className="text-[11px] text-indigo-300 italic">{agentQuote.savings}</p>
+                      </div>
+                    )}
 
                     <div className="space-y-3 text-xs">
                       <div className="flex items-center gap-3">
                         <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
                           paymentStep > 1 ? "bg-celo-green text-black" : "bg-celo-green/20 text-celo-green animate-pulse"
                         }`}>1</div>
-                        <span className={paymentStep >= 1 ? "text-white" : "text-gray-500"}>Permit2 allowance verified for client wallet</span>
+                        <span className={paymentStep >= 1 ? "text-white" : "text-gray-500"}>Agent analyzing USDT & USDC corridors via Textile FX</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
                           paymentStep > 2 ? "bg-celo-green text-black" : paymentStep === 2 ? "bg-celo-green/20 text-celo-green animate-pulse" : "bg-gray-800 text-gray-500"
                         }`}>2</div>
-                        <span className={paymentStep >= 2 ? "text-white" : "text-gray-500"}>{stepMessage || "Broadcasting Textile swap calldata to LimitOrderReactor"}</span>
+                        <span className={paymentStep >= 2 ? "text-white" : "text-gray-500"}>{stepMessage || "Requesting firm 60s quote — Textile LimitOrderReactor"}</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
                           paymentStep >= 3 ? "bg-celo-green text-black" : "bg-gray-800 text-gray-500"
                         }`}>3</div>
-                        <span className={paymentStep >= 3 ? "text-white" : "text-gray-500"}>Atomic delivery of exact {activeInvoice.currency} to Freelancer</span>
+                        <span className={paymentStep >= 3 ? "text-white" : "text-gray-500"}>Exact {activeInvoice.currency} delivered atomically to freelancer</span>
                       </div>
                     </div>
 
@@ -799,7 +973,7 @@ export default function CobroApp() {
                           </p>
                           <p className="text-gray-300 font-mono text-[11px] truncate">Tx: {txHash}</p>
                           <div className="flex items-center gap-3 pt-1">
-                            <a href={`https://celoscan.io/tx/${txHash}`} target="_blank" rel="noreferrer" className="text-celo-green hover:underline flex items-center gap-1 font-semibold text-xs">
+                            <a href={`${CELO_CHAIN_CONFIG.explorerUrl}/tx/${txHash}`} target="_blank" rel="noreferrer" className="text-celo-green hover:underline flex items-center gap-1 font-semibold text-xs">
                               View on Celoscan <ExternalLink className="w-3 h-3" />
                             </a>
                             <button onClick={() => setShowReceiptModal(true)} className="text-indigo-300 hover:underline flex items-center gap-1 font-semibold text-xs">
@@ -823,12 +997,13 @@ export default function CobroApp() {
                       <span>Invoice Already Paid</span>
                     ) : paymentMode === "web3" && !connectedAddress ? (
                       <>
-                        <span>Connect Wallet to Pay {calculatedSellAmount} {sellTokenSymbol}</span>
+                        <span>Connect Wallet — Agent Will Find Best Rate</span>
                         <Wallet className="w-4 h-4" />
                       </>
                     ) : (
                       <>
-                        <span>Pay {calculatedSellAmount} {sellTokenSymbol} to Freelancer</span>
+                        <Bot className="w-4 h-4" />
+                        <span>Pay with Agent ({calculatedSellAmount} {bestCorridor})</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -838,6 +1013,96 @@ export default function CobroApp() {
             </div>
           </div>
         </section>
+      )}
+
+      {/* FREELANCER PROFILE MODAL */}
+      {showProfileModal && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-center justify-between pb-3 border-b border-gray-800">
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <UserCheck className="w-5 h-5 text-celo-green" />
+                Freelancer Profile
+              </h3>
+              <button onClick={() => setShowProfileModal(false)} className="text-gray-400 hover:text-white text-xs px-2.5 py-1 bg-gray-800 rounded-lg">
+                Close
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Display Name */}
+              <div>
+                <label className="text-xs text-gray-400 font-medium block mb-1.5">Your Name</label>
+                <input
+                  value={profileDisplayName}
+                  onChange={e => setProfileDisplayName(e.target.value)}
+                  placeholder="Amara Okonkwo"
+                  className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-celo-green/60"
+                />
+              </div>
+
+              {/* Username */}
+              <div>
+                <label className="text-xs text-gray-400 font-medium block mb-1.5">Username</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm">@</span>
+                  <input
+                    value={profileUsername}
+                    onChange={e => setProfileUsername(e.target.value.replace(/^@/, ""))}
+                    placeholder="yourhandle"
+                    className="w-full pl-7 pr-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-celo-green/60"
+                  />
+                </div>
+              </div>
+
+              {/* Wallet Connect */}
+              <div>
+                <label className="text-xs text-gray-400 font-medium block mb-1.5">Payment Wallet <span className="text-gray-500">(cNGN received here)</span></label>
+                {profileWallet ? (
+                  <div className="flex items-center justify-between p-3 bg-celo-green/5 border border-celo-green/30 rounded-lg">
+                    <div>
+                      <p className="text-celo-green text-xs font-semibold flex items-center gap-1.5">
+                        <span className="w-1.5 h-1.5 rounded-full bg-celo-green inline-block"></span>
+                        Wallet Connected
+                      </p>
+                      <p className="font-mono text-[11px] text-gray-300 mt-0.5">{profileWallet.slice(0,10)}…{profileWallet.slice(-8)}</p>
+                    </div>
+                    <button onClick={() => setProfileWallet("")} className="text-xs text-gray-500 hover:text-red-400">
+                      Disconnect
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={connectFreelancerWallet}
+                    disabled={profileConnecting}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-gray-800 border border-gray-700 hover:border-celo-green/50 rounded-lg text-sm text-white transition-colors disabled:opacity-50"
+                  >
+                    <Wallet className="w-4 h-4 text-celo-green" />
+                    {profileConnecting ? "Connecting…" : "Connect Wallet (MetaMask)"}
+                  </button>
+                )}
+                <p className="text-[11px] text-gray-500 mt-1.5">This wallet receives cNGN when clients pay your invoices via Textile FX.</p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-2">
+              <button
+                onClick={saveFreelancerProfile}
+                className="flex-1 py-2.5 bg-celo-green text-black font-bold rounded-xl text-sm hover:bg-celo-green/90 transition-colors"
+              >
+                Save Profile
+              </button>
+              {freelancerProfile && (
+                <button
+                  onClick={disconnectFreelancerProfile}
+                  className="px-4 py-2.5 bg-red-900/30 border border-red-800 text-red-400 font-semibold rounded-xl text-sm hover:bg-red-900/50 transition-colors"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* CREATE INVOICE MODAL */}
@@ -853,6 +1118,31 @@ export default function CobroApp() {
                 Cancel
               </button>
             </div>
+
+            {/* Profile prompt inside create modal */}
+            {!freelancerProfile ? (
+              <div className="p-3 bg-amber-900/20 border border-amber-700/40 rounded-lg flex items-start gap-3">
+                <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-xs text-amber-300 font-semibold">Setup your profile to receive payments</p>
+                  <p className="text-[11px] text-amber-400/70 mt-0.5">Your wallet address will be used as the cNGN recipient on Textile FX.</p>
+                  <button onClick={() => { setShowCreateModal(false); setShowProfileModal(true); }} className="mt-1.5 text-[11px] text-amber-300 hover:underline font-semibold">
+                    → Setup Profile
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3 bg-celo-green/5 border border-celo-green/20 rounded-lg flex items-center gap-3">
+                <div className="w-7 h-7 rounded-full bg-celo-green flex items-center justify-center text-black font-black text-sm shrink-0">
+                  {freelancerProfile.username[0].toUpperCase()}
+                </div>
+                <div>
+                  <p className="text-xs text-celo-green font-semibold">@{freelancerProfile.username} · {freelancerProfile.displayName}</p>
+                  <p className="font-mono text-[10px] text-gray-400">{freelancerProfile.walletAddress.slice(0,12)}…{freelancerProfile.walletAddress.slice(-6)}</p>
+                </div>
+              </div>
+            )}
+
 
             <form onSubmit={handleGenerateInvoice} className="space-y-4 text-xs">
               <div>
@@ -966,7 +1256,7 @@ export default function CobroApp() {
                 <span className="text-gray-400 font-semibold">1. RFQ Firm Quote Request (`POST /v2/rfq/request`):</span>
                 <pre className="mt-1 p-3 bg-gray-950 border border-gray-800 rounded-lg text-celo-green font-mono text-[11px] overflow-x-auto">
 {JSON.stringify({
-  chainId: 42220,
+  chainId: CELO_CHAIN_CONFIG.chainId,
   sellToken: CELO_CHAIN_CONFIG.tokens[sellTokenSymbol].address,
   buyToken: CELO_CHAIN_CONFIG.tokens.cNGN.address,
   buyAmount: (activeInvoice.amount * 1000000).toString(),
@@ -982,7 +1272,7 @@ export default function CobroApp() {
   to: CELO_CHAIN_CONFIG.contracts.limitOrderReactor,
   data: "0x12b489a2000000000000000000000000" + (connectedAddress || "0x742d35Cc6634C0532925a3b844Bc454e4438f44e").slice(2) + "000000000000000000000000" + activeInvoice.freelancerAddress.slice(2),
   value: "0",
-  chainId: 42220
+  chainId: CELO_CHAIN_CONFIG.chainId
 }, null, 2)}
                 </pre>
               </div>
@@ -1043,7 +1333,7 @@ export default function CobroApp() {
                 <p className="text-[10px] text-gray-500 uppercase font-semibold">Celo Transaction Hash</p>
                 <p className="font-mono text-[11px] text-celo-green truncate mt-0.5">{activeInvoice.txHash || txHash || "0x8fa92305...0182650"}</p>
                 <a 
-                  href={`https://celoscan.io/tx/${activeInvoice.txHash || txHash || ""}`} 
+                  href={`${CELO_CHAIN_CONFIG.explorerUrl}/tx/${activeInvoice.txHash || txHash || ""}`} 
                   target="_blank" 
                   rel="noreferrer" 
                   className="text-celo-green hover:underline flex items-center gap-1 font-semibold text-xs mt-2"
@@ -1073,7 +1363,7 @@ export default function CobroApp() {
       )}
 
       <footer className="mt-12 py-4 border-t border-gray-800 text-center text-xs text-gray-500">
-        Cobro &bull; Powered by Textile FX LimitOrderReactor on Celo Mainnet (42220) &bull; Audited Non-Custodial RFQ
+        Cobro &bull; Powered by Textile FX on {CELO_CHAIN_CONFIG.name} (chain {CELO_CHAIN_CONFIG.chainId}) &bull; Rates from Textile Mainnet {(CELO_CHAIN_CONFIG as any).isTestnet ? "🧪 Testnet Demo" : "Non-Custodial RFQ"}
       </footer>
     </main>
   );

@@ -1,0 +1,36 @@
+[
+  {
+    "id": "INV-2026-089",
+    "freelancerName": "Amara Okonkwo",
+    "freelancerAddress": "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
+    "clientName": "Acme Web3 Labs",
+    "clientAddress": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+    "description": "Full-Stack Smart Contract & Frontend Audit",
+    "currency": "cNGN",
+    "amount": 500000,
+    "amountFormatted": "500,000",
+    "amountUnits": "500000000000",
+    "dueDate": "2026-11-05",
+    "status": "PAID",
+    "txHash": "0x343ecddaa8be06f268ff61d8dde495c8619aede85b16b904065f5c9cac2089f6",
+    "paidWith": "363.05 USDT",
+    "createdAt": "2026-11-01T00:00:00.000Z"
+  },
+  {
+    "id": "INV-2026-088",
+    "freelancerName": "Amara Okonkwo",
+    "freelancerAddress": "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
+    "clientName": "Global DAO Ops",
+    "clientAddress": "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
+    "description": "DeFi Cross-Border Payment Integration Guide",
+    "currency": "cNGN",
+    "amount": 350000,
+    "amountFormatted": "350,000",
+    "amountUnits": "350000000000",
+    "dueDate": "2026-10-20",
+    "status": "PAID",
+    "txHash": "0x8fa92305710bcba726190db957263b610c495810bde4726105820bbda0182650",
+    "paidWith": "231.00 USDT",
+    "createdAt": "2026-10-15T00:00:00.000Z"
+  }
+]
