@@ -114,6 +114,7 @@ export async function createInvoiceApi(data: {
   clientAddress: string;
   description: string;
   currency: "cNGN" | "USDC" | "wARS" | "wBRL";
+  acceptedSettlementCurrencies?: ("cNGN" | "USDC")[];
   amount: number;
   dueDate: string;
 }): Promise<BackendInvoice> {
