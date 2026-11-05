@@ -10,6 +10,7 @@ import {
   createInvoiceApi,
   confirmPayment,
   saveUserProfile,
+  fetchUserProfile,
   fetchNotifications,
   type AgentQuoteResponse,
 } from "../services/agentApi";
@@ -141,6 +142,23 @@ export default function CobroApp() {
       .catch(() => setInvoicesError("Unable to load invoices from the backend."))
       .finally(() => setInvoicesLoading(false));
   }, [connectedAddress]);
+
+  // Restore the username/profile stored in Postgres whenever the wallet reconnects.
+  useEffect(() => {
+    if (!connectedAddress || !role) return;
+    fetchUserProfile(connectedAddress).then((user) => {
+      if (!user) return;
+      setProfileUsername(user.username);
+      setClientUsername(user.role === "client" ? user.username : "");
+      if (user.role === "freelancer") {
+        const profile = { username: user.username, displayName: user.username, walletAddress: user.wallet_address };
+        setFreelancerProfile(profile);
+        setProfileDisplayName(profile.displayName);
+        setProfileWallet(user.wallet_address);
+        localStorage.setItem("cobro_freelancer_profile", JSON.stringify(profile));
+      }
+    }).catch(() => undefined);
+  }, [connectedAddress, role]);
 
   // Poll wallet-scoped notifications while the client dashboard is open.
   useEffect(() => {
@@ -505,8 +523,10 @@ export default function CobroApp() {
                 }`}>
                   {role}
                 </span>
-                <span className="font-mono text-gray-300">
-                  {connectedAddress ? `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}` : "Wallet not connected"}
+                <span className="text-gray-300">
+                  {role === "client"
+                    ? (clientUsername ? `@${clientUsername}` : "Profile loading…")
+                    : (freelancerProfile?.username ? `@${freelancerProfile.username}` : "Profile loading…")}
                 </span>
               </div>
               <button
@@ -597,7 +617,11 @@ export default function CobroApp() {
           <div className="flex flex-wrap items-center justify-between gap-4 bg-gray-900/70 border border-gray-800 p-5 rounded-2xl">
             <div>
               <h2 className="text-xl font-bold text-white">Freelancer Dashboard</h2>
-              <p className="text-xs text-gray-400">Logged in as <strong className="text-celo-green font-mono">{connectedAddress || "Connected wallet"}</strong></p>
+              <p className="text-xs text-gray-400">
+                Username: <strong className="text-celo-green">{freelancerProfile?.username ? `@${freelancerProfile.username}` : "Loading profile…"}</strong>
+                <span className="text-gray-600 mx-2">•</span>
+                Wallet: <span className="font-mono text-gray-500">{connectedAddress ? `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}` : "Connecting…"}</span>
+              </p>
             </div>
             <div className="flex items-center gap-2.5">
               <button 
@@ -753,7 +777,11 @@ export default function CobroApp() {
           <div className="flex flex-wrap items-center justify-between bg-gray-900/70 border border-gray-800 p-5 rounded-2xl gap-4">
             <div>
               <h2 className="text-xl font-bold text-white">Client Payment Portal</h2>
-              <p className="text-xs text-gray-400">Pay freelancer invoices on Celo &bull; Powered by Textile FX</p>
+              <p className="text-xs text-gray-400">
+                Username: <strong className="text-indigo-300">{clientUsername ? `@${clientUsername}` : "Loading profile…"}</strong>
+                <span className="text-gray-600 mx-2">•</span>
+                Pay freelancer invoices on Celo &bull; Powered by Textile FX
+              </p>
             </div>
             <div className="flex items-center gap-3">
               <span className="hidden md:inline-block text-xs bg-indigo-500/10 text-indigo-400 border border-indigo-500/30 px-3 py-1.5 rounded-full font-medium">

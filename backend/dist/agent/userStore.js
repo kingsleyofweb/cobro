@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.upsertUser = upsertUser;
 exports.findUser = findUser;
+exports.findUserByWallet = findUserByWallet;
 const db_1 = require("../db");
 async function upsertUser(username, walletAddress, role) {
     const normalized = username.trim().replace(/^@/, "").toLowerCase();
@@ -12,5 +13,9 @@ async function upsertUser(username, walletAddress, role) {
 }
 async function findUser(username) {
     const result = await db_1.db.query("select username, wallet_address, role from users where lower(username) = lower($1)", [username.trim().replace(/^@/, "")]);
+    return result.rows[0];
+}
+async function findUserByWallet(walletAddress) {
+    const result = await db_1.db.query("select username, wallet_address, role from users where lower(wallet_address) = lower($1)", [walletAddress]);
     return result.rows[0];
 }

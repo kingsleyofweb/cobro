@@ -15,3 +15,11 @@ export async function findUser(username: string) {
   const result = await db.query("select username, wallet_address, role from users where lower(username) = lower($1)", [username.trim().replace(/^@/, "")]);
   return result.rows[0];
 }
+
+export async function findUserByWallet(walletAddress: string) {
+  const result = await db.query(
+    "select username, wallet_address, role from users where lower(wallet_address) = lower($1)",
+    [walletAddress],
+  );
+  return result.rows[0];
+}

@@ -140,6 +140,13 @@ export async function saveUserProfile(username: string, walletAddress: string, r
   return res.json();
 }
 
+export async function fetchUserProfile(walletAddress: string) {
+  const res = await fetch(`${BACKEND_URL}/api/users/profile?walletAddress=${encodeURIComponent(walletAddress)}`);
+  if (!res.ok) return null;
+  const data = await res.json();
+  return data.user ?? null;
+}
+
 export async function fetchNotifications(walletAddress: string) {
   const res = await fetch(`${BACKEND_URL}/api/notifications?walletAddress=${encodeURIComponent(walletAddress)}`);
   if (!res.ok) return [];
