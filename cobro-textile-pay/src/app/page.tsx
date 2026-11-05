@@ -96,6 +96,11 @@ export default function CobroApp() {
   const [connectedAddress, setConnectedAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [tokenBalance, setTokenBalance] = useState<string>("0.00");
+  const [walletDialog, setWalletDialog] = useState<{
+    title: string;
+    message: string;
+    showInstallLink?: boolean;
+  } | null>(null);
 
   // Form State
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -161,37 +166,50 @@ export default function CobroApp() {
   }, [role, selectedInvoiceId]);
 
   // Connect Web3 Wallet
+  const showWalletDialog = (title: string, message: string, showInstallLink = false) => {
+    setWalletDialog({ title, message, showInstallLink });
+  };
+
   const connectWallet = async (): Promise<boolean> => {
-    if (typeof window !== "undefined" && (window as any).ethereum) {
-      try {
-        const provider = new ethers.BrowserProvider((window as any).ethereum);
-        const accounts = await provider.send("eth_requestAccounts", []);
-        setConnectedAddress(accounts[0]);
-        setProfileWallet(accounts[0]);
-        const network = await provider.getNetwork();
-        const cId = Number(network.chainId);
-        setChainId(cId);
+    if (typeof window === "undefined" || !(window as any).ethereum) {
+      showWalletDialog(
+        "Install MetaMask",
+        "Cobro requires a browser wallet to sign payments on Celo Mainnet. Install the MetaMask extension, then return here and connect your wallet.",
+        true,
+      );
+      return false;
+    }
 
-        if (cId !== CELO_CHAIN_CONFIG.chainId) {
-          await switchToCelo();
-          const switchedNetwork = await provider.getNetwork();
-          const switchedChainId = Number(switchedNetwork.chainId);
-          setChainId(switchedChainId);
-          if (switchedChainId !== CELO_CHAIN_CONFIG.chainId) return false;
+    try {
+      const provider = new ethers.BrowserProvider((window as any).ethereum);
+      const accounts = await provider.send("eth_requestAccounts", []);
+      setConnectedAddress(accounts[0]);
+      setProfileWallet(accounts[0]);
+      const network = await provider.getNetwork();
+      const cId = Number(network.chainId);
+      setChainId(cId);
+
+      if (cId !== CELO_CHAIN_CONFIG.chainId) {
+        await switchToCelo();
+        const switchedNetwork = await provider.getNetwork();
+        const switchedChainId = Number(switchedNetwork.chainId);
+        setChainId(switchedChainId);
+        if (switchedChainId !== CELO_CHAIN_CONFIG.chainId) {
+          showWalletDialog("Switch to Celo Mainnet", "Cobro payments run on Celo Mainnet. Approve the network switch in MetaMask to continue.");
+          return false;
         }
-
-        // Fetch balance
-        const tokenAddr = CELO_CHAIN_CONFIG.tokens[sellTokenSymbol].address;
-        const tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
-        const bal = await tokenContract.balanceOf(accounts[0]);
-        setTokenBalance((Number(bal) / 1000000).toFixed(2));
-        return true;
-      } catch (err) {
-        console.warn("Wallet connect:", err);
-        return false;
       }
-    } else {
-      alert("A Celo-compatible wallet is required for mainnet payments.");
+
+      const tokenAddr = CELO_CHAIN_CONFIG.tokens[sellTokenSymbol].address;
+      const tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
+      const bal = await tokenContract.balanceOf(accounts[0]);
+      setTokenBalance((Number(bal) / 1000000).toFixed(2));
+      return true;
+    } catch (err: any) {
+      const message = err?.code === 4001 || err?.code === "ACTION_REJECTED"
+        ? "Wallet connection was cancelled. Connect your wallet to continue."
+        : err?.message || "We could not connect to your wallet. Please unlock MetaMask and try again.";
+      showWalletDialog("Wallet connection failed", message);
       return false;
     }
   };
@@ -229,15 +247,24 @@ export default function CobroApp() {
   // ── Freelancer: connect wallet for profile ─────────────────────────────────
   const connectFreelancerWallet = async () => {
     if (!(window as any).ethereum) {
-      alert("Please install MetaMask to connect your wallet.");
+      showWalletDialog(
+        "Install MetaMask",
+        "Your settlement wallet is required to receive cNGN or USDC. Install the MetaMask extension, then return here and connect your wallet.",
+        true,
+      );
       return;
     }
     setProfileConnecting(true);
     try {
       const accounts = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
       setProfileWallet(accounts[0]);
-    } catch (err) {
-      console.warn("Freelancer wallet connect failed:", err);
+    } catch (err: any) {
+      showWalletDialog(
+        "Wallet connection failed",
+        err?.code === 4001 || err?.code === "ACTION_REJECTED"
+          ? "Wallet connection was cancelled. Connect your wallet to continue."
+          : err?.message || "We could not connect to your wallet. Please unlock MetaMask and try again.",
+      );
     } finally {
       setProfileConnecting(false);
     }
@@ -245,7 +272,7 @@ export default function CobroApp() {
 
   const saveFreelancerProfile = () => {
     if (!profileUsername.trim() || !profileWallet) {
-      alert("Please enter a username and connect your wallet.");
+      showWalletDialog("Complete your profile", "Enter a username and connect a settlement wallet before saving your profile.");
       return;
     }
     const profile = {
@@ -300,7 +327,7 @@ export default function CobroApp() {
   const handleExecutePayment = async () => {
     if (!activeInvoice || activeInvoice.status === "PAID") return;
     if (!agentQuote) {
-      alert(quoteError || "A live Textile quote is required before payment.");
+      showWalletDialog("Live quote unavailable", quoteError || "A live Textile quote is required before payment.");
       return;
     }
 
@@ -386,13 +413,12 @@ export default function CobroApp() {
         ),
       );
     } catch (err: any) {
-      console.error("Agent payment failed:", err);
       setIsPaying(false);
       setPaymentStep(0);
       const msg = err.code === "ACTION_REJECTED"
         ? "Transaction cancelled in wallet."
         : `Payment error: ${err.message || "Unknown error"}`;
-      alert(msg);
+      showWalletDialog("Payment could not be completed", msg);
     }
   };
 
@@ -996,6 +1022,47 @@ export default function CobroApp() {
           <h2 className="text-lg font-bold text-white">No invoices available</h2>
           <p className="text-sm text-gray-400 mt-2">Invoices created by freelancers will appear here.</p>
         </section>
+      )}
+
+      {/* WALLET / APP FEEDBACK DIALOG */}
+      {walletDialog && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[60] flex items-center justify-center p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="wallet-dialog-title"
+        >
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-celo-green/10 text-celo-green flex items-center justify-center shrink-0">
+                <Wallet className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 id="wallet-dialog-title" className="text-base font-bold text-white">{walletDialog.title}</h3>
+                <p className="text-sm text-gray-400 mt-2 leading-relaxed">{walletDialog.message}</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              {walletDialog.showInstallLink && (
+                <a
+                  href="https://metamask.io/download/"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-1 py-2.5 bg-celo-green text-black font-bold rounded-xl text-sm text-center hover:bg-celo-green/90 transition-colors flex items-center justify-center gap-2"
+                >
+                  Install MetaMask
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
+              <button
+                onClick={() => setWalletDialog(null)}
+                className={`${walletDialog.showInstallLink ? "px-4" : "w-full"} py-2.5 bg-gray-800 border border-gray-700 text-white font-semibold rounded-xl text-sm hover:bg-gray-700 transition-colors`}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* FREELANCER PROFILE MODAL */}
