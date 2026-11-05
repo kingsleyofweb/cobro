@@ -967,7 +967,7 @@ export default function CobroApp() {
                   <div className="mb-5 bg-indigo-950/40 border border-indigo-800/50 rounded-xl p-4 space-y-3">
                     <div className="flex items-center gap-2 text-xs font-bold text-indigo-200">
                       <TrendingDown className="w-3.5 h-3.5 text-indigo-400" />
-                      Agent FX Analysis — Best Route Selected
+                      Cobro Agent FX Analysis — Best Route Selected
                     </div>
                     <div className="grid grid-cols-2 gap-2 text-xs">
                       {(["cNGN", "USDC"] as const).map(currency => {
