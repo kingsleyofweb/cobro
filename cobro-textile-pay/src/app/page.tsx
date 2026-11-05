@@ -232,6 +232,9 @@ export default function CobroApp() {
     const connected = await connectWallet();
     if (!connected) return;
     setRole(nextRole);
+    setProfileUsername(nextRole === "client" ? clientUsername : freelancerProfile?.username || "");
+    setProfileDisplayName(nextRole === "freelancer" ? freelancerProfile?.displayName || "" : "");
+    setShowProfileModal(true);
   };
 
   const registerClientUsername = async () => {
@@ -272,48 +275,54 @@ export default function CobroApp() {
 
   // ── Freelancer: connect wallet for profile ─────────────────────────────────
   const connectFreelancerWallet = async () => {
-    if (!(window as any).ethereum) {
-      showWalletDialog(
-        "Install MetaMask",
-        "Your settlement wallet is required to receive cNGN or USDC. Install the MetaMask extension, then return here and connect your wallet.",
-        true,
-      );
-      return;
-    }
     setProfileConnecting(true);
     try {
-      const accounts = await (window as any).ethereum.request({ method: "eth_requestAccounts" });
-      setProfileWallet(accounts[0]);
-    } catch (err: any) {
-      showWalletDialog(
-        "Wallet connection failed",
-        err?.code === 4001 || err?.code === "ACTION_REJECTED"
-          ? "Wallet connection was cancelled. Connect your wallet to continue."
-          : err?.message || "We could not connect to your wallet. Please unlock MetaMask and try again.",
-      );
+      await connectWallet();
     } finally {
       setProfileConnecting(false);
     }
   };
 
-  const saveFreelancerProfile = () => {
+  const saveUserProfileSettings = async () => {
     if (!profileUsername.trim() || !profileWallet) {
-      showWalletDialog("Complete your profile", "Enter a username and connect a settlement wallet before saving your profile.");
+      showWalletDialog("Complete your profile", "Enter a username and connect your wallet before saving your profile.");
       return;
     }
-    const profile = {
-      username: profileUsername.trim().replace(/^@/, ""),
-      displayName: profileDisplayName.trim() || profileUsername.trim(),
-      walletAddress: profileWallet,
-    };
-    setFreelancerProfile(profile);
-    localStorage.setItem("cobro_freelancer_profile", JSON.stringify(profile));
-    setShowProfileModal(false);
+    const username = profileUsername.trim().replace(/^@/, "").toLowerCase();
+    try {
+      await saveUserProfile(username, profileWallet, role === "client" ? "client" : "freelancer");
+      if (role === "client") {
+        setClientUsername(username);
+      } else {
+        const profile = {
+          username,
+          displayName: profileDisplayName.trim() || username,
+          walletAddress: profileWallet,
+        };
+        setFreelancerProfile(profile);
+        localStorage.setItem("cobro_freelancer_profile", JSON.stringify(profile));
+      }
+      setShowProfileModal(false);
+    } catch (error) {
+      showWalletDialog("Username unavailable", error instanceof Error ? error.message : "Unable to save profile");
+    }
   };
 
-  const disconnectFreelancerProfile = () => {
-    setFreelancerProfile(null);
+  const disconnectWallet = () => {
+    setRole(null);
+    setConnectedAddress(null);
+    setChainId(null);
+    setTokenBalance("0.00");
     setProfileWallet("");
+    setClientUsername("");
+    setProfileUsername("");
+    setProfileDisplayName("");
+    setFreelancerProfile(null);
+    setInvoices([]);
+    setSelectedInvoiceId("");
+    setNotifications([]);
+    setShowProfileModal(false);
+    setShowCreateModal(false);
     localStorage.removeItem("cobro_freelancer_profile");
   };
 
@@ -500,13 +509,24 @@ export default function CobroApp() {
                   {connectedAddress ? `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}` : "Wallet not connected"}
                 </span>
               </div>
-              <button 
-                onClick={() => setRole(null)} 
+              <button
+                onClick={() => {
+                  setProfileUsername(role === "client" ? clientUsername : freelancerProfile?.username || "");
+                  setProfileDisplayName(freelancerProfile?.displayName || "");
+                  setShowProfileModal(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-celo-green/10 border border-gray-800 text-xs text-gray-300 hover:text-celo-green font-medium transition shadow-sm"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Profile</span>
+              </button>
+              <button
+                onClick={disconnectWallet}
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-gray-900 hover:bg-red-500/10 hover:border-red-500/40 border border-gray-800 text-xs text-gray-300 hover:text-red-400 font-medium transition shadow-sm" 
-                title="Log out and return to role selection"
+                title="Disconnect wallet and return to role selection"
               >
                 <LogOut className="w-3.5 h-3.5 text-red-400" />
-                <span>Logout</span>
+                <span>Disconnect</span>
               </button>
             </div>
           )}
@@ -588,12 +608,12 @@ export default function CobroApp() {
                 <span>Add Invoice</span>
               </button>
               <button 
-                onClick={() => setRole(null)}
+                onClick={disconnectWallet}
                 className="px-3.5 py-2.5 bg-gray-800 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30 border border-gray-700 text-gray-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition" 
-                title="Logout from Freelancer account"
+                title="Disconnect freelancer wallet"
               >
                 <LogOut className="w-3.5 h-3.5 text-red-400" />
-                <span>Logout</span>
+                <span>Disconnect</span>
               </button>
             </div>
           </div>
@@ -740,12 +760,12 @@ export default function CobroApp() {
                 Zero AMM Slippage &bull; Atomic Limit Order
               </span>
               <button 
-                onClick={() => setRole(null)}
+                onClick={disconnectWallet}
                 className="px-3.5 py-2 bg-gray-800 hover:bg-red-500/20 hover:text-red-400 hover:border-red-500/30 border border-gray-700 text-gray-300 font-semibold rounded-xl text-xs flex items-center gap-1.5 transition" 
-                title="Logout from Client account"
+                title="Disconnect client wallet"
               >
                 <LogOut className="w-3.5 h-3.5 text-red-400" />
-                <span>Logout</span>
+                <span>Disconnect</span>
               </button>
             </div>
           </div>
@@ -1124,14 +1144,14 @@ export default function CobroApp() {
         </div>
       )}
 
-      {/* FREELANCER PROFILE MODAL */}
+      {/* USER PROFILE MODAL */}
       {showProfileModal && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-gray-900 border border-gray-700 rounded-2xl max-w-sm w-full p-6 shadow-2xl space-y-5">
             <div className="flex items-center justify-between pb-3 border-b border-gray-800">
               <h3 className="text-base font-bold text-white flex items-center gap-2">
                 <UserCheck className="w-5 h-5 text-celo-green" />
-                Freelancer Profile
+                {role === "client" ? "Client Profile" : "Freelancer Profile"}
               </h3>
               <button onClick={() => setShowProfileModal(false)} className="text-gray-400 hover:text-white text-xs px-2.5 py-1 bg-gray-800 rounded-lg">
                 Close
@@ -1140,7 +1160,7 @@ export default function CobroApp() {
 
             <div className="space-y-4">
               {/* Display Name */}
-              <div>
+              {role === "freelancer" && <div>
                 <label className="text-xs text-gray-400 font-medium block mb-1.5">Your Name</label>
                 <input
                   value={profileDisplayName}
@@ -1148,7 +1168,7 @@ export default function CobroApp() {
                   placeholder="Amara Okonkwo"
                   className="w-full px-3 py-2.5 bg-gray-800 border border-gray-700 rounded-lg text-sm text-white placeholder-gray-500 focus:outline-none focus:border-celo-green/60"
                 />
-              </div>
+              </div>}
 
               {/* Username */}
               <div>
@@ -1166,7 +1186,7 @@ export default function CobroApp() {
 
               {/* Wallet Connect */}
               <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1.5">Settlement Wallet <span className="text-gray-500">(cNGN or USDC received here)</span></label>
+                <label className="text-xs text-gray-400 font-medium block mb-1.5">Connected Wallet</label>
                 {profileWallet ? (
                   <div className="flex items-center justify-between p-3 bg-celo-green/5 border border-celo-green/30 rounded-lg">
                     <div>
@@ -1176,8 +1196,8 @@ export default function CobroApp() {
                       </p>
                       <p className="font-mono text-[11px] text-gray-300 mt-0.5">{profileWallet.slice(0,10)}…{profileWallet.slice(-8)}</p>
                     </div>
-                    <button onClick={() => setProfileWallet("")} className="text-xs text-gray-500 hover:text-red-400">
-                      Disconnect
+                    <button onClick={disconnectWallet} className="text-xs text-gray-500 hover:text-red-400">
+                      Disconnect Wallet
                     </button>
                   </div>
                 ) : (
@@ -1190,23 +1210,23 @@ export default function CobroApp() {
                     {profileConnecting ? "Connecting…" : "Connect Wallet (MetaMask)"}
                   </button>
                 )}
-                <p className="text-[11px] text-gray-500 mt-1.5">This wallet receives the selected cNGN or USDC settlement via Textile FX.</p>
+                <p className="text-[11px] text-gray-500 mt-1.5">This wallet identifies your account and receives or sends settlement funds on Celo.</p>
               </div>
             </div>
 
             <div className="flex gap-3 pt-2">
               <button
-                onClick={saveFreelancerProfile}
+                onClick={() => void saveUserProfileSettings()}
                 className="flex-1 py-2.5 bg-celo-green text-black font-bold rounded-xl text-sm hover:bg-celo-green/90 transition-colors"
               >
                 Save Profile
               </button>
-              {freelancerProfile && (
+              {connectedAddress && (
                 <button
-                  onClick={disconnectFreelancerProfile}
+                  onClick={disconnectWallet}
                   className="px-4 py-2.5 bg-red-900/30 border border-red-800 text-red-400 font-semibold rounded-xl text-sm hover:bg-red-900/50 transition-colors"
                 >
-                  Remove
+                  Disconnect Wallet
                 </button>
               )}
             </div>
