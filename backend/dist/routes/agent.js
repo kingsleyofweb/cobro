@@ -13,25 +13,21 @@ Object.defineProperty(exports, "__esModule", { value: true });
  *   2. Textile returns two ready-to-sign transactions:
  *        - approvalTx: ERC-20 approve(spender, amount) on USDT
  *        - swapTx:     LimitOrderReactor.execute() — settles USDT→cNGN atomically
- *   3a. LIVE mode:    agent (holding USDT) signs and broadcasts both
- *   3b. ASSISTED mode: transactions returned to client's MetaMask to sign
- *   3c. SIMULATION:  fake txHash when no Textile API key is set
+ *   3. Client signs and broadcasts the returned transactions, paying Celo gas.
  *
  * GET  /api/agent/info              — mode, agent address, Textile key status
- * POST /api/agent/quote             — compare USDT & USDC corridors
+ * POST /api/agent/quote             — compare accepted cNGN/USDC outputs
  * POST /api/agent/execute           — get firm quote + settle
  * POST /api/agent/confirm           — record client txHash (assisted mode)
  * GET  /api/agent/status/:invoiceId — poll payment status
  */
 const express_1 = require("express");
 const rateOptimizer_1 = require("../agent/rateOptimizer");
-const paymentExecutor_1 = require("../agent/paymentExecutor");
 const invoiceStore_1 = require("../agent/invoiceStore");
 const wallet_1 = require("../agent/wallet");
 const celo_1 = require("../config/celo");
 const router = (0, express_1.Router)();
 const TEXTILE_API_BASE = "https://api.textilecredit.com/v2";
-const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 // ---------------------------------------------------------------------------
 // GET /api/agent/info
 // ---------------------------------------------------------------------------
@@ -66,15 +62,17 @@ router.post("/quote", async (req, res) => {
             res.status(400).json({ error: "Invoice already paid" });
             return;
         }
-        const optimalRoute = await (0, rateOptimizer_1.getOptimalRoute)(invoice.amountUnits);
+        const acceptedCurrencies = invoice.acceptedSettlementCurrencies ?? (invoice.currency === "USDC" ? ["USDC"] : ["cNGN"]);
+        const optimalRoute = await (0, rateOptimizer_1.getOptimalRoute)(invoice.amountUnits, acceptedCurrencies);
         const agentAddress = await (0, wallet_1.getAgentAddress)();
         res.json({
             invoiceId: invoice.id,
             invoiceAmount: invoice.amountFormatted,
             invoiceCurrency: invoice.currency,
             freelancerAddress: invoice.freelancerAddress,
-            bestCorridor: optimalRoute.bestCorridor,
-            corridors: optimalRoute.corridors,
+            bestSettlementCurrency: optimalRoute.bestSettlementCurrency,
+            settlements: optimalRoute.settlements,
+            acceptedSettlementCurrencies: acceptedCurrencies,
             savings: optimalRoute.savings,
             agentAddress,
             mode: (0, wallet_1.executionMode)(),
@@ -88,7 +86,7 @@ router.post("/quote", async (req, res) => {
 });
 // ---------------------------------------------------------------------------
 // POST /api/agent/execute
-// Body: { invoiceId: string, corridor: "USDT"|"USDC", takerAddress?: string }
+// Body: { invoiceId: string, settlementCurrency: "cNGN"|"USDC", takerAddress?: string }
 //
 // Flow:
 //   1. Get indicative route from rateOptimizer
@@ -99,13 +97,19 @@ router.post("/quote", async (req, res) => {
 // ---------------------------------------------------------------------------
 router.post("/execute", async (req, res) => {
     try {
-        const { invoiceId, corridor, takerAddress } = req.body;
-        if (!invoiceId || !corridor) {
-            res.status(400).json({ error: "invoiceId and corridor are required" });
+        const { invoiceId, settlementCurrency, takerAddress } = req.body;
+        if (!invoiceId || !settlementCurrency) {
+            res.status(400).json({ error: "invoiceId and settlementCurrency are required" });
             return;
         }
-        if (!["USDT", "USDC"].includes(corridor)) {
-            res.status(400).json({ error: "corridor must be USDT or USDC" });
+        if (!["cNGN", "USDC"].includes(settlementCurrency)) {
+            res.status(400).json({ error: "settlementCurrency must be cNGN or USDC" });
+            return;
+        }
+        if (!takerAddress) {
+            res.status(400).json({
+                error: "takerAddress is required: the client wallet must authorize and pay this transaction",
+            });
             return;
         }
         const invoice = (0, invoiceStore_1.getInvoice)(invoiceId);
@@ -117,13 +121,23 @@ router.post("/execute", async (req, res) => {
             res.status(400).json({ error: "Invoice already paid" });
             return;
         }
-        // ── Step 1: Get indicative quotes (USDT vs USDC) ──────────────────────
-        const optimalRoute = await (0, rateOptimizer_1.getOptimalRoute)(invoice.amountUnits);
-        const corridorQuote = optimalRoute.corridors[corridor];
+        const acceptedCurrencies = invoice.acceptedSettlementCurrencies ?? (invoice.currency === "USDC" ? ["USDC"] : ["cNGN"]);
+        if (!acceptedCurrencies.includes(settlementCurrency)) {
+            res.status(400).json({ error: `Invoice does not accept ${settlementCurrency} settlement` });
+            return;
+        }
+        // ── Step 1: Compare live output-currency routes ───────────────────────
+        const optimalRoute = await (0, rateOptimizer_1.getOptimalRoute)(invoice.amountUnits, acceptedCurrencies);
+        const settlementQuote = optimalRoute.settlements[settlementCurrency];
+        if (!settlementQuote?.available) {
+            res.status(409).json({ error: settlementQuote?.reason || `${settlementCurrency} route unavailable` });
+            return;
+        }
         // ── Step 2: Get real 60s firm quote from Textile ──────────────────────
-        let firmSellAmount = corridorQuote.estimatedSellAmount;
-        let firmSellFormatted = corridorQuote.estimatedSellAmountFormatted;
+        let firmSellAmount = settlementQuote.estimatedSellAmount;
+        let firmSellFormatted = settlementQuote.estimatedSellAmountFormatted;
         let liveTextileQuote = false;
+        let quoteExpiresAt = null;
         let textileApprovalTx = null;
         let textileSwapTx = null;
         try {
@@ -131,17 +145,12 @@ router.post("/execute", async (req, res) => {
             if (process.env.TEXTILE_API_KEY) {
                 headers["Authorization"] = `Bearer ${process.env.TEXTILE_API_KEY}`;
             }
-            // In LIVE mode the agent is the taker (holds USDT itself)
-            // In ASSISTED mode the client is the taker
-            const effectiveTaker = (0, wallet_1.isLiveMode)()
-                ? (await (0, wallet_1.getAgentAddress)()) ?? ZERO_ADDRESS
-                : takerAddress ?? ZERO_ADDRESS;
             const rfqBody = {
                 chainId: celo_1.CELO_CONFIG.chainId,
-                sellToken: corridorQuote.sellTokenAddress,
-                buyToken: celo_1.CELO_CONFIG.tokens.cNGN.address,
-                buyAmount: invoice.amountUnits, // exact cNGN freelancer should receive
-                taker: effectiveTaker,
+                sellToken: celo_1.CELO_CONFIG.tokens.USDT.address,
+                buyToken: settlementQuote.buyTokenAddress,
+                buyAmount: settlementQuote.estimatedBuyAmount,
+                taker: takerAddress,
                 recipient: invoice.freelancerAddress, // ← cNGN delivered directly to freelancer
             };
             const quoteRes = await fetch(`${TEXTILE_API_BASE}/rfq/request`, {
@@ -152,27 +161,35 @@ router.post("/execute", async (req, res) => {
             });
             if (quoteRes.ok) {
                 const json = await quoteRes.json();
-                const quote = json.data ?? json;
-                if (quote?.sellAmount) {
-                    firmSellAmount = String(quote.sellAmount);
-                    const sellDecimals = celo_1.CELO_CONFIG.tokens[corridor].decimals;
+                const payload = json.data ?? json;
+                // v2 returns quote fields under data.quote, while older responses
+                // placed them directly under data. Support both shapes.
+                const quote = payload.quote ?? payload;
+                const transactions = payload.transactions ?? quote.transactions;
+                // takerPays is the exact amount debited from the client's wallet,
+                // including Textile's protocol fee. Approve this exact amount.
+                const exactTakerPays = quote?.takerPays ?? quote?.sellAmount;
+                if (exactTakerPays) {
+                    firmSellAmount = String(exactTakerPays);
+                    const sellDecimals = celo_1.CELO_CONFIG.tokens.USDT.decimals;
                     firmSellFormatted = (Number(firmSellAmount) / 10 ** sellDecimals).toFixed(2);
                     liveTextileQuote = true;
                 }
+                quoteExpiresAt = quote?.expiresAt ?? null;
                 // Textile returns pre-built, ready-to-sign transactions
-                if (quote?.transactions?.approval) {
+                if (transactions?.approval) {
                     textileApprovalTx = {
-                        to: quote.transactions.approval.to,
-                        data: quote.transactions.approval.data,
-                        value: quote.transactions.approval.value ?? "0x0",
+                        to: transactions.approval.to,
+                        data: transactions.approval.data,
+                        value: transactions.approval.value ?? "0x0",
                         chainId: celo_1.CELO_CONFIG.chainId,
                     };
                 }
-                if (quote?.transactions?.swap) {
+                if (transactions?.swap) {
                     textileSwapTx = {
-                        to: quote.transactions.swap.to,
-                        data: quote.transactions.swap.data,
-                        value: quote.transactions.swap.value ?? "0x0",
+                        to: transactions.swap.to,
+                        data: transactions.swap.data,
+                        value: transactions.swap.value ?? "0x0",
                         chainId: celo_1.CELO_CONFIG.chainId,
                     };
                 }
@@ -183,81 +200,29 @@ router.post("/execute", async (req, res) => {
             }
         }
         catch (rfqErr) {
-            console.warn("[Textile] RFQ unavailable — falling back to simulation:", rfqErr);
+            console.warn("[Textile] RFQ unavailable:", rfqErr);
         }
-        const paidWith = `${firmSellFormatted} ${corridor}`;
-        // ── LIVE MODE: agent signs both Textile transactions ──────────────────
-        if ((0, wallet_1.isLiveMode)() && textileSwapTx) {
-            const signer = (0, wallet_1.getAgentSigner)();
-            if (textileApprovalTx) {
-                const approveTx = await signer.sendTransaction({
-                    to: textileApprovalTx.to,
-                    data: textileApprovalTx.data,
-                });
-                await approveTx.wait(1);
-                console.log(`[Agent] Approval confirmed: ${approveTx.hash}`);
-            }
-            const swapTx = await signer.sendTransaction({
-                to: textileSwapTx.to,
-                data: textileSwapTx.data,
-            });
-            const receipt = await swapTx.wait(1);
-            const txHash = receipt.hash;
-            console.log(`[Agent] Swap confirmed: ${txHash}`);
-            const updatedInvoice = (0, invoiceStore_1.markPaid)(invoice.id, txHash, paidWith);
-            return res.json({
-                success: true,
-                mode: "live",
-                invoiceId: invoice.id,
-                txHash,
-                celoscanUrl: `${celo_1.CELO_CONFIG.explorerUrl}/tx/${txHash}`,
-                paidWith,
-                corridor,
-                liveTextileQuote,
-                freelancerAddress: invoice.freelancerAddress,
-                updatedInvoice,
-            });
-        }
-        // ── ASSISTED MODE: return unsigned txns for client wallet ─────────────
-        if (textileSwapTx && takerAddress) {
+        const paidWith = `${firmSellFormatted} USDT → ${settlementCurrency}`;
+        // ── CLIENT MODE: return unsigned txns; client wallet pays gas ─────────
+        if (textileSwapTx) {
             return res.json({
                 mode: "assisted",
                 invoiceId: invoice.id,
-                corridor,
+                settlementCurrency,
                 paidWith,
                 liveTextileQuote,
                 freelancerAddress: invoice.freelancerAddress,
                 sellAmount: firmSellAmount,
                 sellAmountFormatted: firmSellFormatted,
+                quoteExpiresAt,
                 // Client must sign these two transactions in order:
                 approvalTx: textileApprovalTx, // 1. approve USDT for Textile spender
                 swapTx: textileSwapTx, // 2. execute USDT→cNGN swap via LimitOrderReactor
             });
         }
-        // ── SIMULATION MODE: return deterministic fake txHash ────────────────
-        const result = await (0, paymentExecutor_1.executePayment)({
-            invoiceId: invoice.id,
-            freelancerAddress: invoice.freelancerAddress,
-            clientAddress: takerAddress || invoice.clientAddress,
-            sellTokenSymbol: corridor,
-            sellTokenAddress: corridorQuote.sellTokenAddress,
-            maxSellAmountUnits: firmSellAmount,
-            buyTokenAddress: celo_1.CELO_CONFIG.tokens.cNGN.address,
-            exactBuyAmountUnits: invoice.amountUnits,
-            textileSwapCalldata: textileSwapTx?.data ?? "0x",
-        });
-        const updatedInvoice = (0, invoiceStore_1.markPaid)(invoice.id, result.txHash, paidWith);
-        return res.json({
-            success: true,
-            mode: result.mode,
-            invoiceId: invoice.id,
-            txHash: result.txHash,
-            celoscanUrl: result.celoscanUrl,
-            paidWith,
-            corridor,
-            liveTextileQuote,
-            freelancerAddress: invoice.freelancerAddress,
-            updatedInvoice,
+        res.status(503).json({
+            error: "Textile did not return a settlement transaction",
+            details: "Configure a Textile API key with RFQ request access before accepting mainnet payments.",
         });
     }
     catch (error) {

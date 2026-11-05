@@ -82,14 +82,13 @@ app.post("/api/rfq/:quoteId/submit", async (req, res) => {
 app.listen(port, () => {
   const mode = executionMode();
   const modeLabel = {
-    live:        "🔴 LIVE       (agent signs Textile txns autonomously)",
-    assisted:    "🟠 ASSISTED   (client MetaMask signs Textile txns)",
-    simulation:  "🟡 SIMULATION (fake txHash — set TEXTILE_API_KEY for real rates)",
+    assisted:    "🟢 CLIENT     (client wallet signs and pays Celo gas)",
+    unavailable: "🔴 UNAVAILABLE (set TEXTILE_API_KEY for settlement quotes)",
   }[mode];
 
   console.log(`\n🚀 Cobro backend listening on http://localhost:${port}`);
   console.log(`   Agent mode:   ${modeLabel}`);
-  console.log(`   Textile key:  ${process.env.TEXTILE_API_KEY ? "✅ set — live market rates" : "⬜ not set — simulated rates"}`);
-  console.log(`   Agent wallet: ${process.env.AGENT_PRIVATE_KEY ? "✅ set — autonomous execution" : "⬜ not set — client signs"}`);
+  console.log(`   Textile key:  ${process.env.TEXTILE_API_KEY ? "✅ set — live market rates" : "⬜ not set — settlement unavailable"}`);
+  console.log(`   Admin key:    ${process.env.AGENT_PRIVATE_KEY ? "✅ set — deployment/admin only" : "⬜ not set — not required for payments"}`);
   console.log(`   RPC:          ${process.env.CELO_RPC_URL || "https://forno.celo.org (default)"}\n`);
 });

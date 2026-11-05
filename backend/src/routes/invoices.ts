@@ -36,6 +36,7 @@ router.post("/", (req: Request, res: Response) => {
     currency,
     amount,
     dueDate,
+    acceptedSettlementCurrencies,
   } = req.body;
 
   if (!freelancerName || !freelancerAddress || !clientName || !description || !amount || !currency || !dueDate) {
@@ -52,6 +53,10 @@ router.post("/", (req: Request, res: Response) => {
     return;
   }
 
+  const settlementOptions: ("cNGN" | "USDC")[] = Array.isArray(acceptedSettlementCurrencies) && acceptedSettlementCurrencies.length > 0
+    ? acceptedSettlementCurrencies.filter((value: unknown): value is "cNGN" | "USDC" => value === "cNGN" || value === "USDC")
+    : [currency === "USDC" ? "USDC" : "cNGN"];
+
   const invoice = createInvoice({
     freelancerName,
     freelancerAddress,
@@ -59,6 +64,7 @@ router.post("/", (req: Request, res: Response) => {
     clientAddress: clientAddress || "0x0000000000000000000000000000000000000000",
     description,
     currency,
+    acceptedSettlementCurrencies: settlementOptions,
     amount: parsedAmount,
     dueDate,
   });

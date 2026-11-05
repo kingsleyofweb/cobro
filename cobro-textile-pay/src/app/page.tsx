@@ -20,7 +20,6 @@ import {
   ExternalLink, 
   Code2, 
   Wallet, 
-  Zap, 
   UserCheck, 
   Building2, 
   FilePlus, 
@@ -41,7 +40,8 @@ interface Invoice {
   freelancerName: string;
   freelancerAddress: string;
   description: string;
-  currency: "cNGN" | "wARS" | "wBRL";
+  currency: "cNGN" | "USDC" | "wARS" | "wBRL";
+  acceptedSettlementCurrencies?: ("cNGN" | "USDC")[];
   amount: number;
   amountFormatted: string;
   dueDate: string;
@@ -49,39 +49,6 @@ interface Invoice {
   txHash: string | null;
   paidWith?: string | null;
 }
-
-const INITIAL_INVOICES: Invoice[] = [
-  {
-    id: "INV-2026-089",
-    clientName: "Acme Web3 Labs",
-    clientAddress: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
-    freelancerName: "Amara Okonkwo",
-    freelancerAddress: "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
-    description: "Full-Stack Smart Contract & Frontend Audit",
-    currency: "cNGN",
-    amount: 500000,
-    amountFormatted: "500,000",
-    dueDate: "2026-11-05",
-    status: "UNPAID",
-    txHash: null,
-    paidWith: null
-  },
-  {
-    id: "INV-2026-088",
-    clientName: "Global DAO Ops",
-    clientAddress: "0x742d35Cc6634C0532925a3b844Bc454e4438f44e",
-    freelancerName: "Amara Okonkwo",
-    freelancerAddress: "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
-    description: "DeFi Cross-Border Payment Integration Guide",
-    currency: "cNGN",
-    amount: 350000,
-    amountFormatted: "350,000",
-    dueDate: "2026-10-20",
-    status: "PAID",
-    txHash: "0x8fa92305710bcba726190db957263b610c495810bde4726105820bbda0182650",
-    paidWith: "231.00 USDT"
-  }
-];
 
 const ERC20_ABI = [
   "function balanceOf(address owner) view returns (uint256)",
@@ -93,8 +60,10 @@ const ERC20_ABI = [
 
 export default function CobroApp() {
   const [role, setRole] = useState<"freelancer" | "client" | null>(null);
-  const [invoices, setInvoices] = useState<Invoice[]>(INITIAL_INVOICES);
-  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>("INV-2026-089");
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState<string>("");
+  const [invoicesLoading, setInvoicesLoading] = useState(true);
+  const [invoicesError, setInvoicesError] = useState<string | null>(null);
 
   // ── Freelancer Profile ─────────────────────────────────────────────────────
   const [freelancerProfile, setFreelancerProfile] = useState<{
@@ -109,9 +78,9 @@ export default function CobroApp() {
   const [profileConnecting, setProfileConnecting] = useState(false);
 
   // Payment State
-  const [sellTokenSymbol, setSellTokenSymbol] = useState<"USDT" | "USDC">("USDT");
+  const [sellTokenSymbol] = useState<"USDT">("USDT");
+  const [settlementCurrency, setSettlementCurrency] = useState<"cNGN" | "USDC">("cNGN");
   const [timeLeft, setTimeLeft] = useState<number>(60);
-  const [paymentMode, setPaymentMode] = useState<"web3" | "sim">("web3");
   const [isPaying, setIsPaying] = useState(false);
   const [paymentStep, setPaymentStep] = useState<number>(0);
   const [stepMessage, setStepMessage] = useState<string>("");
@@ -120,6 +89,7 @@ export default function CobroApp() {
   const [showReceiptModal, setShowReceiptModal] = useState(false);
   // Agent State
   const [agentQuote, setAgentQuote] = useState<AgentQuoteResponse | null>(null);
+  const [quoteError, setQuoteError] = useState<string | null>(null);
 
   // Web3 State
   const [connectedAddress, setConnectedAddress] = useState<string | null>(null);
@@ -129,57 +99,53 @@ export default function CobroApp() {
   // Form State
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [formClientName, setFormClientName] = useState("");
-  const [formClientAddress, setFormClientAddress] = useState("0x742d35Cc6634C0532925a3b844Bc454e4438f44e");
+  const [formClientAddress, setFormClientAddress] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState("");
-  const [formCurrency, setFormCurrency] = useState<"cNGN" | "wARS" | "wBRL">("cNGN");
+  const [formCurrency, setFormCurrency] = useState<"cNGN" | "USDC" | "wARS" | "wBRL">("cNGN");
+  const [acceptUsdcSettlement, setAcceptUsdcSettlement] = useState(true);
   const [formDueDate, setFormDueDate] = useState("2026-11-12");
 
-  const activeInvoice = invoices.find(i => i.id === selectedInvoiceId) || invoices[0];
+  const activeInvoice = invoices.find(i => i.id === selectedInvoiceId) || invoices[0]!;
 
-  // Rate calculation — prefer live agent quote, fall back to estimate
-  const baseRate = sellTokenSymbol === "USDT" ? 1515.20 : 1512.80;
-  const bestCorridor = agentQuote?.bestCorridor ?? sellTokenSymbol;
+  // Payment amount is shown only when backed by a live agent quote.
+  const bestCorridor = agentQuote?.bestSettlementCurrency ?? settlementCurrency;
   const calculatedSellAmount = agentQuote
-    ? agentQuote.corridors[bestCorridor].estimatedSellAmountFormatted
-    : activeInvoice
-      ? ((activeInvoice.amount / baseRate) * 1.0001).toFixed(2)
-      : "0.00";
-
-  // Load freelancer profile from localStorage on mount
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("cobro_freelancer_profile");
-      if (saved) {
-        const p = JSON.parse(saved);
-        setFreelancerProfile(p);
-        setProfileUsername(p.username || "");
-        setProfileDisplayName(p.displayName || "");
-        setProfileWallet(p.walletAddress || "");
-      }
-    } catch {}
-  }, []);
+    ? agentQuote.settlements[bestCorridor]?.estimatedSellAmountFormatted ?? "Unavailable"
+    : "Unavailable";
 
   // Fetch persisted invoices from backend on mount
   useEffect(() => {
-    fetchInvoices().then((data) => {
-      if (data && data.length > 0) {
-        setInvoices(data as any);
-        setSelectedInvoiceId(data[0].id);
-      }
-    });
+    setInvoicesLoading(true);
+    fetchInvoices()
+      .then((data) => {
+        if (data) {
+          setInvoices(data as any);
+          setSelectedInvoiceId(data[0]?.id || "");
+          setInvoicesError(null);
+        } else {
+          setInvoicesError("Unable to load invoices from the backend.");
+        }
+      })
+      .catch(() => setInvoicesError("Unable to load invoices from the backend."))
+      .finally(() => setInvoicesLoading(false));
   }, []);
 
   // Fetch agent quote preview whenever the client view opens or invoice changes
   useEffect(() => {
     if (role !== "client" || !activeInvoice || activeInvoice.status === "PAID") {
       setAgentQuote(null);
+      setQuoteError(null);
       return;
     }
+    setAgentQuote(null);
+    setQuoteError(null);
     getAgentQuote(activeInvoice.id, connectedAddress ?? undefined)
       .then(setAgentQuote)
-      .catch(() => {}); // silent — UI falls back to estimate
-  }, [role, selectedInvoiceId]);
+      .catch((error: unknown) => {
+        setQuoteError(error instanceof Error ? error.message : "Live Textile quote unavailable");
+      });
+  }, [role, selectedInvoiceId, connectedAddress]);
 
   // 60-second TTL timer
   useEffect(() => {
@@ -191,21 +157,26 @@ export default function CobroApp() {
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [role, selectedInvoiceId, sellTokenSymbol]);
+  }, [role, selectedInvoiceId]);
 
   // Connect Web3 Wallet
-  const connectWallet = async () => {
+  const connectWallet = async (): Promise<boolean> => {
     if (typeof window !== "undefined" && (window as any).ethereum) {
       try {
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const accounts = await provider.send("eth_requestAccounts", []);
         setConnectedAddress(accounts[0]);
+        setProfileWallet(accounts[0]);
         const network = await provider.getNetwork();
         const cId = Number(network.chainId);
         setChainId(cId);
 
         if (cId !== CELO_CHAIN_CONFIG.chainId) {
           await switchToCelo();
+          const switchedNetwork = await provider.getNetwork();
+          const switchedChainId = Number(switchedNetwork.chainId);
+          setChainId(switchedChainId);
+          if (switchedChainId !== CELO_CHAIN_CONFIG.chainId) return false;
         }
 
         // Fetch balance
@@ -213,13 +184,21 @@ export default function CobroApp() {
         const tokenContract = new ethers.Contract(tokenAddr, ERC20_ABI, provider);
         const bal = await tokenContract.balanceOf(accounts[0]);
         setTokenBalance((Number(bal) / 1000000).toFixed(2));
+        return true;
       } catch (err) {
         console.warn("Wallet connect:", err);
+        return false;
       }
     } else {
-      alert("No Web3 wallet extension found. Switching to Instant Simulator mode for test payments.");
-      setPaymentMode("sim");
+      alert("A Celo-compatible wallet is required for mainnet payments.");
+      return false;
     }
+  };
+
+  const loginWithWallet = async (nextRole: "freelancer" | "client") => {
+    const connected = await connectWallet();
+    if (!connected) return;
+    setRole(nextRole);
   };
 
   const switchToCelo = async () => {
@@ -284,7 +263,7 @@ export default function CobroApp() {
     localStorage.removeItem("cobro_freelancer_profile");
   };
 
-  // Handle Invoice Creation — persists to backend, falls back to local state
+  // Handle Invoice Creation — backend persistence is required.
   const handleGenerateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formClientName || !formAmount || !formDescription) return;
@@ -294,36 +273,20 @@ export default function CobroApp() {
     try {
       const saved = await createInvoiceApi({
         freelancerName: freelancerProfile?.displayName || "Freelancer",
-        freelancerAddress: freelancerProfile?.walletAddress || "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
+        freelancerAddress: connectedAddress || profileWallet,
         clientName: formClientName,
         clientAddress: formClientAddress,
         description: formDescription,
         currency: formCurrency,
+        acceptedSettlementCurrencies: formCurrency === "cNGN" && acceptUsdcSettlement ? ["cNGN", "USDC"] : [formCurrency as "cNGN" | "USDC"],
         amount: numAmount,
         dueDate: formDueDate,
       });
       setInvoices(prev => [saved as any, ...prev]);
       setSelectedInvoiceId(saved.id);
-    } catch {
-      // Backend unavailable — fall back to local state
-      const newId = `INV-2026-0${invoices.length + 90}`;
-      const newInv: Invoice = {
-        id: newId,
-        clientName: formClientName,
-        clientAddress: formClientAddress,
-        freelancerName: freelancerProfile?.displayName || "Freelancer",
-        freelancerAddress: freelancerProfile?.walletAddress || "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
-        description: formDescription,
-        currency: formCurrency,
-        amount: numAmount,
-        amountFormatted: numAmount.toLocaleString(),
-        dueDate: formDueDate,
-        status: "UNPAID",
-        txHash: null,
-        paidWith: null
-      };
-      setInvoices(prev => [newInv, ...prev]);
-      setSelectedInvoiceId(newId);
+    } catch (error) {
+      setInvoicesError(error instanceof Error ? error.message : "Unable to create invoice.");
+      return;
     }
 
     setShowCreateModal(false);
@@ -332,28 +295,30 @@ export default function CobroApp() {
     setFormAmount("");
   };
 
-  // Handle Payment Execution — supports simulation, assisted, and live agent modes
+  // Handle payment execution — the client wallet signs and pays Celo gas.
   const handleExecutePayment = async () => {
     if (!activeInvoice || activeInvoice.status === "PAID") return;
+    if (!agentQuote) {
+      alert(quoteError || "A live Textile quote is required before payment.");
+      return;
+    }
 
-    if (paymentMode === "web3") {
-      if (!connectedAddress) {
-        await connectWallet();
-        return;
-      }
-      if (chainId !== CELO_CHAIN_CONFIG.chainId) {
-        await switchToCelo();
-        return;
-      }
+    if (!connectedAddress) {
+      await connectWallet();
+      return;
+    }
+    if (chainId !== CELO_CHAIN_CONFIG.chainId) {
+      await switchToCelo();
+      return;
     }
 
     setIsPaying(true);
     setAgentQuote(null);
 
     try {
-      // ── Step 1: Agent analyzes both FX corridors ───────────────────────
+      // ── Step 1: Agent compares accepted settlement currencies ──────────
       setPaymentStep(1);
-      setStepMessage("Querying USDT & USDC corridors via Textile FX...");
+      setStepMessage("Comparing cNGN and USDC settlement routes via Textile FX...");
 
       const quote = await getAgentQuote(
         activeInvoice.id,
@@ -367,7 +332,7 @@ export default function CobroApp() {
 
       const result = await executeAgentPayment(
         activeInvoice.id,
-        quote.bestCorridor,
+        quote.bestSettlementCurrency,
         connectedAddress ?? undefined,
       );
 
@@ -378,12 +343,22 @@ export default function CobroApp() {
         const provider = new ethers.BrowserProvider((window as any).ethereum);
         const signer = await provider.getSigner();
 
-        setStepMessage(`Approving ${result.corridor} spend for CobroRouter... (1/2)`);
+        const quoteExpired = () =>
+          !!result.quoteExpiresAt && Date.now() >= Date.parse(result.quoteExpiresAt);
+        if (quoteExpired()) {
+          throw new Error("The firm Textile quote expired. Please request a new quote.");
+        }
+
+        setStepMessage(`Approving exact ${result.paidWith} spend for Textile... (1/2)`);
         const approveTx = await signer.sendTransaction({
           to: result.approvalTx.to,
           data: result.approvalTx.data,
         });
         await approveTx.wait(1);
+
+        if (quoteExpired()) {
+          throw new Error("The firm Textile quote expired while approval was pending. Please request a new quote.");
+        }
 
         setStepMessage(`Executing Textile FX swap on Celo Mainnet... (2/2)`);
         const swapTx = await signer.sendTransaction({
@@ -435,7 +410,7 @@ export default function CobroApp() {
           </div>
           <div>
             <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-2">
-              Cobro <span className="text-xs px-2.5 py-0.5 rounded-full bg-celo-green/10 text-celo-green border border-celo-green/30">{CELO_CHAIN_CONFIG.name}{(CELO_CHAIN_CONFIG as any).isTestnet && " 🧪"}</span>
+              Cobro <span className="text-xs px-2.5 py-0.5 rounded-full bg-celo-green/10 text-celo-green border border-celo-green/30">{CELO_CHAIN_CONFIG.name}</span>
             </h1>
             <p className="text-xs text-gray-400">Freelance Invoicing & FX Settlement via Textile</p>
           </div>
@@ -470,7 +445,7 @@ export default function CobroApp() {
                   {role}
                 </span>
                 <span className="font-mono text-gray-300">
-                  {role === "freelancer" ? "0x8920...43e7" : (connectedAddress ? `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}` : "0x742d...f44e")}
+                  {connectedAddress ? `${connectedAddress.slice(0, 6)}...${connectedAddress.slice(-4)}` : "Wallet not connected"}
                 </span>
               </div>
               <button 
@@ -486,6 +461,18 @@ export default function CobroApp() {
         </div>
       </header>
 
+      {invoicesLoading && (
+        <div className="mb-6 rounded-xl border border-gray-800 bg-gray-900/70 p-4 text-sm text-gray-300 flex items-center gap-3">
+          <RefreshCw className="w-4 h-4 animate-spin text-celo-green" />
+          Loading invoices from the backend…
+        </div>
+      )}
+      {!invoicesLoading && invoicesError && (
+        <div className="mb-6 rounded-xl border border-red-900/60 bg-red-950/30 p-4 text-sm text-red-200">
+          {invoicesError}
+        </div>
+      )}
+
       {/* VIEW 1: Role Selection */}
       {!role && (
         <section className="py-8 max-w-2xl mx-auto space-y-8">
@@ -496,7 +483,7 @@ export default function CobroApp() {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             {/* Freelancer Card */}
-            <div onClick={() => setRole("freelancer")} className="group p-6 bg-gray-900/90 border border-gray-800 hover:border-celo-green/50 hover:bg-gray-900 rounded-2xl cursor-pointer transition-all duration-200 shadow-xl space-y-4 hover:shadow-celo-green/10">
+            <div onClick={() => loginWithWallet("freelancer")} className="group p-6 bg-gray-900/90 border border-gray-800 hover:border-celo-green/50 hover:bg-gray-900 rounded-2xl cursor-pointer transition-all duration-200 shadow-xl space-y-4 hover:shadow-celo-green/10">
               <div className="w-12 h-12 rounded-xl bg-celo-green/10 text-celo-green flex items-center justify-center group-hover:scale-110 transition">
                 <UserCheck className="w-6 h-6" />
               </div>
@@ -513,7 +500,7 @@ export default function CobroApp() {
             </div>
 
             {/* Client Card */}
-            <div onClick={() => setRole("client")} className="group p-6 bg-gray-900/90 border border-gray-800 hover:border-indigo-500/50 hover:bg-gray-900 rounded-2xl cursor-pointer transition-all duration-200 shadow-xl space-y-4 hover:shadow-indigo-500/10">
+            <div onClick={() => loginWithWallet("client")} className="group p-6 bg-gray-900/90 border border-gray-800 hover:border-indigo-500/50 hover:bg-gray-900 rounded-2xl cursor-pointer transition-all duration-200 shadow-xl space-y-4 hover:shadow-indigo-500/10">
               <div className="w-12 h-12 rounded-xl bg-indigo-500/10 text-indigo-400 flex items-center justify-center group-hover:scale-110 transition">
                 <Building2 className="w-6 h-6" />
               </div>
@@ -538,7 +525,7 @@ export default function CobroApp() {
           <div className="flex flex-wrap items-center justify-between gap-4 bg-gray-900/70 border border-gray-800 p-5 rounded-2xl">
             <div>
               <h2 className="text-xl font-bold text-white">Freelancer Dashboard</h2>
-              <p className="text-xs text-gray-400">Logged in as <strong className="text-celo-green font-mono">Amara Okonkwo (0x8920...43e7)</strong></p>
+              <p className="text-xs text-gray-400">Logged in as <strong className="text-celo-green font-mono">{connectedAddress || "Connected wallet"}</strong></p>
             </div>
             <div className="flex items-center gap-2.5">
               <button 
@@ -602,7 +589,9 @@ export default function CobroApp() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800">
-                  {invoices.map(inv => (
+                  {invoices.length === 0 ? (
+                    <tr><td colSpan={7} className="px-6 py-10 text-center text-gray-400">No invoices yet. Create your first invoice.</td></tr>
+                  ) : invoices.map(inv => (
                     <tr key={inv.id} className="hover:bg-gray-950/40 transition">
                       <td className="px-6 py-4 font-mono font-bold text-white">{inv.id}</td>
                       <td className="px-6 py-4 text-gray-300">{inv.clientName}</td>
@@ -653,7 +642,7 @@ export default function CobroApp() {
       )}
 
       {/* VIEW 3: Client Dashboard */}
-      {role === "client" && (
+      {role === "client" && invoices.length > 0 && (
         <section className="space-y-6">
           <div className="flex flex-wrap items-center justify-between bg-gray-900/70 border border-gray-800 p-5 rounded-2xl gap-4">
             <div>
@@ -770,7 +759,7 @@ export default function CobroApp() {
                 </div>
 
                 <div className="flex items-center justify-between mb-5">
-                  <h3 className="text-sm font-bold text-white">Payment Currency</h3>
+                  <h3 className="text-sm font-bold text-white">Freelancer Accepted Currencies</h3>
                   <div className="flex items-center gap-2 text-xs">
                     <Clock className={`w-3.5 h-3.5 ${timeLeft < 15 ? 'text-red-400 animate-pulse' : 'text-celo-green'}`} />
                     <span className={timeLeft < 15 ? 'text-red-400 font-bold' : 'text-gray-300 font-mono'}>
@@ -785,29 +774,29 @@ export default function CobroApp() {
                 {/* Currency Buttons */}
                 <div className="grid grid-cols-2 gap-3 mb-5">
                   <button 
-                    onClick={() => setSellTokenSymbol("USDT")}
+                    onClick={() => setSettlementCurrency("cNGN")}
                     className={`flex items-center justify-between p-3.5 rounded-xl border transition ${
-                      sellTokenSymbol === "USDT" ? "border-celo-green bg-celo-green/10 text-white font-medium" : "border-gray-800 bg-gray-950/50 text-gray-400 hover:border-gray-700"
+                      settlementCurrency === "cNGN" ? "border-celo-green bg-celo-green/10 text-white font-medium" : "border-gray-800 bg-gray-950/50 text-gray-400 hover:border-gray-700"
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 font-bold text-xs flex items-center justify-center">₮</span>
-                      <span>USDT</span>
+                      <span>cNGN</span>
                     </div>
-                    <span className="text-[11px] text-gray-400">Deep Liquidity</span>
+                    <span className="text-[11px] text-gray-400">Local payout</span>
                   </button>
 
                   <button 
-                    onClick={() => setSellTokenSymbol("USDC")}
+                    onClick={() => setSettlementCurrency("USDC")}
                     className={`flex items-center justify-between p-3.5 rounded-xl border transition ${
-                      sellTokenSymbol === "USDC" ? "border-celo-green bg-celo-green/10 text-white font-medium" : "border-gray-800 bg-gray-950/50 text-gray-400 hover:border-gray-700"
+                      settlementCurrency === "USDC" ? "border-celo-green bg-celo-green/10 text-white font-medium" : "border-gray-800 bg-gray-950/50 text-gray-400 hover:border-gray-700"
                     }`}
                   >
                     <div className="flex items-center gap-2.5">
                       <span className="w-6 h-6 rounded-full bg-blue-500/20 text-blue-400 font-bold text-xs flex items-center justify-center">$</span>
                       <span>USDC</span>
                     </div>
-                    <span className="text-[11px] text-gray-500">Native</span>
+                    <span className="text-[11px] text-gray-400">USD payout</span>
                   </button>
                 </div>
 
@@ -820,7 +809,7 @@ export default function CobroApp() {
 
                   <div className="flex items-center justify-between">
                     <div className="text-2xl font-black text-white tracking-tight">
-                      {calculatedSellAmount} <span className="text-sm font-semibold text-gray-400">{bestCorridor}</span>
+                      {calculatedSellAmount} <span className="text-sm font-semibold text-gray-400">USDT</span>
                     </div>
                     <ArrowRight className="w-5 h-5 text-gray-600" />
                     <div className="text-2xl font-black text-celo-green tracking-tight">
@@ -833,10 +822,12 @@ export default function CobroApp() {
                       {agentQuote ? (
                         <span className="text-indigo-300 flex items-center gap-1">
                           <Bot className="w-3 h-3" /> Agent rate:
-                          <span className="text-gray-200 font-mono ml-1">1 {bestCorridor} ≈ {agentQuote.corridors[bestCorridor].effectiveRate.toFixed(2)} cNGN</span>
+                          <span className="text-gray-200 font-mono ml-1">Output: {agentQuote.settlements[bestCorridor]?.estimatedBuyAmountFormatted ?? "Unavailable"} {bestCorridor}</span>
                         </span>
                       ) : (
-                        <span>Textile Rate: <span className="text-gray-200 font-mono">1 {bestCorridor} ≈ {baseRate.toFixed(2)} cNGN</span></span>
+                        <span className={quoteError ? "text-red-300" : "text-gray-400"}>
+                          {quoteError || "Requesting live Textile quote..."}
+                        </span>
                       )}
                     </div>
                     <div className="text-right">Taker Fee: <span className="text-gray-200 font-mono">1 bps (0.01%)</span></div>
@@ -845,30 +836,8 @@ export default function CobroApp() {
                   </div>
                 </div>
 
-                {/* Mode Selector */}
-                <div className="mb-5 bg-gray-950 p-1.5 rounded-xl border border-gray-800 grid grid-cols-2 gap-1 text-xs font-semibold">
-                  <button 
-                    onClick={() => setPaymentMode("web3")}
-                    className={`py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
-                      paymentMode === "web3" ? "bg-celo-green/10 text-celo-green border border-celo-green/30" : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    <Wallet className="w-3.5 h-3.5" />
-                    <span>Live Web3 Wallet</span>
-                  </button>
-                  <button 
-                    onClick={() => setPaymentMode("sim")}
-                    className={`py-2 rounded-lg flex items-center justify-center gap-1.5 transition ${
-                      paymentMode === "sim" ? "bg-celo-green/10 text-celo-green border border-celo-green/30" : "text-gray-400 hover:text-white"
-                    }`}
-                  >
-                    <Zap className="w-3.5 h-3.5" />
-                    <span>Instant Simulator (No Gas)</span>
-                  </button>
-                </div>
-
                 {/* Web3 Status Bar */}
-                {paymentMode === "web3" && (
+                {(
                   <div className="mb-5 p-3.5 bg-gray-950 border border-gray-800 rounded-xl text-xs space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-gray-400 flex items-center gap-1.5">
@@ -914,9 +883,10 @@ export default function CobroApp() {
                           Agent FX Analysis — Best Route Selected
                         </div>
                         <div className="grid grid-cols-2 gap-2 text-xs">
-                          {(["USDT", "USDC"] as const).map(c => {
-                            const corridor = agentQuote.corridors[c];
-                            const isBest = agentQuote.bestCorridor === c;
+                          {(["cNGN", "USDC"] as const).map(c => {
+                            const corridor = agentQuote.settlements[c];
+                            if (!corridor) return null;
+                            const isBest = agentQuote.bestSettlementCurrency === corridor.settlementCurrency;
                             return (
                               <div key={c} className={`p-2.5 rounded-lg border ${
                                 isBest
@@ -930,11 +900,10 @@ export default function CobroApp() {
                                   )}
                                 </div>
                                 <div className={`font-black text-sm ${ isBest ? "text-celo-green" : "text-gray-400" }`}>
-                                  {corridor.estimatedSellAmountFormatted}
-                                  <span className="text-xs font-normal ml-0.5">{c}</span>
+                                  {corridor.available ? `${corridor.estimatedSellAmountFormatted} USDT` : "Unavailable"}
                                 </div>
                                 <div className="text-[10px] text-gray-500 mt-0.5">
-                                  ₦{corridor.effectiveRate.toFixed(2)}/{c}
+                                  {corridor.available ? `Output: ${corridor.estimatedBuyAmountFormatted} ${c}` : corridor.reason}
                                 </div>
                               </div>
                             );
@@ -949,7 +918,7 @@ export default function CobroApp() {
                         <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
                           paymentStep > 1 ? "bg-celo-green text-black" : "bg-celo-green/20 text-celo-green animate-pulse"
                         }`}>1</div>
-                        <span className={paymentStep >= 1 ? "text-white" : "text-gray-500"}>Agent analyzing USDT & USDC corridors via Textile FX</span>
+                        <span className={paymentStep >= 1 ? "text-white" : "text-gray-500"}>Agent comparing cNGN and USDC settlement routes via Textile FX</span>
                       </div>
                       <div className="flex items-center gap-3">
                         <div className={`w-5 h-5 rounded-full flex items-center justify-center font-bold text-[10px] ${
@@ -990,12 +959,17 @@ export default function CobroApp() {
                 ) : (
                   <button 
                     onClick={handleExecutePayment}
-                    disabled={isPaying || activeInvoice.status === "PAID"}
+                    disabled={isPaying || activeInvoice.status === "PAID" || !agentQuote || !!quoteError}
                     className="w-full py-4 bg-celo-green hover:bg-celo-green/90 text-black font-extrabold rounded-xl shadow-lg shadow-celo-green/20 transition flex items-center justify-center gap-2 text-sm disabled:opacity-50"
                   >
                     {activeInvoice.status === "PAID" ? (
                       <span>Invoice Already Paid</span>
-                    ) : paymentMode === "web3" && !connectedAddress ? (
+                    ) : quoteError || !agentQuote ? (
+                      <>
+                        <span>{quoteError ? "Live Quote Unavailable" : "Waiting for Live Quote..."}</span>
+                        <RefreshCw className="w-4 h-4" />
+                      </>
+                    ) : !connectedAddress ? (
                       <>
                         <span>Connect Wallet — Agent Will Find Best Rate</span>
                         <Wallet className="w-4 h-4" />
@@ -1003,7 +977,7 @@ export default function CobroApp() {
                     ) : (
                       <>
                         <Bot className="w-4 h-4" />
-                        <span>Pay with Agent ({calculatedSellAmount} {bestCorridor})</span>
+                        <span>Pay with Agent ({calculatedSellAmount} USDT → {bestCorridor})</span>
                         <ArrowRight className="w-4 h-4" />
                       </>
                     )}
@@ -1012,6 +986,14 @@ export default function CobroApp() {
               </div>
             </div>
           </div>
+        </section>
+      )}
+
+      {role === "client" && !invoicesLoading && !invoicesError && invoices.length === 0 && (
+        <section className="py-16 text-center rounded-2xl border border-gray-800 bg-gray-900/60">
+          <FileCheck className="w-10 h-10 mx-auto text-gray-600 mb-4" />
+          <h2 className="text-lg font-bold text-white">No invoices available</h2>
+          <p className="text-sm text-gray-400 mt-2">Invoices created by freelancers will appear here.</p>
         </section>
       )}
 
@@ -1057,7 +1039,7 @@ export default function CobroApp() {
 
               {/* Wallet Connect */}
               <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1.5">Payment Wallet <span className="text-gray-500">(cNGN received here)</span></label>
+                <label className="text-xs text-gray-400 font-medium block mb-1.5">Settlement Wallet <span className="text-gray-500">(cNGN or USDC received here)</span></label>
                 {profileWallet ? (
                   <div className="flex items-center justify-between p-3 bg-celo-green/5 border border-celo-green/30 rounded-lg">
                     <div>
@@ -1081,7 +1063,7 @@ export default function CobroApp() {
                     {profileConnecting ? "Connecting…" : "Connect Wallet (MetaMask)"}
                   </button>
                 )}
-                <p className="text-[11px] text-gray-500 mt-1.5">This wallet receives cNGN when clients pay your invoices via Textile FX.</p>
+                <p className="text-[11px] text-gray-500 mt-1.5">This wallet receives the selected cNGN or USDC settlement via Textile FX.</p>
               </div>
             </div>
 
@@ -1189,9 +1171,21 @@ export default function CobroApp() {
                     className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-celo-green"
                   >
                     <option value="cNGN">cNGN (Nigerian Naira)</option>
+                    <option value="USDC">USDC (USD Coin)</option>
                     <option value="wARS">wARS (Argentine Peso)</option>
                     <option value="wBRL">wBRL (Brazilian Real)</option>
                   </select>
+                  {formCurrency === "cNGN" && (
+                    <label className="mt-2 flex items-center gap-2 text-[11px] text-gray-400">
+                      <input
+                        type="checkbox"
+                        checked={acceptUsdcSettlement}
+                        onChange={e => setAcceptUsdcSettlement(e.target.checked)}
+                        className="accent-emerald-500"
+                      />
+                      Also accept the live USDC equivalent
+                    </label>
+                  )}
                 </div>
                 <div>
                   <label className="block text-gray-300 mb-1 font-medium">Exact Amount Owed</label>
@@ -1257,10 +1251,10 @@ export default function CobroApp() {
                 <pre className="mt-1 p-3 bg-gray-950 border border-gray-800 rounded-lg text-celo-green font-mono text-[11px] overflow-x-auto">
 {JSON.stringify({
   chainId: CELO_CHAIN_CONFIG.chainId,
-  sellToken: CELO_CHAIN_CONFIG.tokens[sellTokenSymbol].address,
-  buyToken: CELO_CHAIN_CONFIG.tokens.cNGN.address,
-  buyAmount: (activeInvoice.amount * 1000000).toString(),
-  taker: connectedAddress || "0x742d35Cc6634C0532925a3b844Bc454e4438f44e"
+  sellToken: CELO_CHAIN_CONFIG.tokens.USDT.address,
+  buyToken: CELO_CHAIN_CONFIG.tokens[bestCorridor].address,
+  buyAmount: agentQuote?.settlements[bestCorridor]?.estimatedBuyAmount || (activeInvoice.amount * 1000000).toString(),
+  taker: connectedAddress || "Unavailable until wallet connection"
 }, null, 2)}
                 </pre>
               </div>
@@ -1270,7 +1264,7 @@ export default function CobroApp() {
                 <pre className="mt-1 p-3 bg-gray-950 border border-gray-800 rounded-lg text-indigo-300 font-mono text-[11px] overflow-x-auto">
 {JSON.stringify({
   to: CELO_CHAIN_CONFIG.contracts.limitOrderReactor,
-  data: "0x12b489a2000000000000000000000000" + (connectedAddress || "0x742d35Cc6634C0532925a3b844Bc454e4438f44e").slice(2) + "000000000000000000000000" + activeInvoice.freelancerAddress.slice(2),
+  data: connectedAddress ? "0x12b489a2000000000000000000000000" + connectedAddress.slice(2) + "000000000000000000000000" + activeInvoice.freelancerAddress.slice(2) : "Unavailable until wallet connection",
   value: "0",
   chainId: CELO_CHAIN_CONFIG.chainId
 }, null, 2)}
@@ -1313,7 +1307,7 @@ export default function CobroApp() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400">Client Paid:</span>
-                  <span className="font-bold text-white">{activeInvoice.paidWith || `${calculatedSellAmount} ${sellTokenSymbol}`}</span>
+                  <span className="font-bold text-white">{activeInvoice.paidWith || `${calculatedSellAmount} USDT → ${bestCorridor}`}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400">Freelancer (Beneficiary):</span>
@@ -1363,7 +1357,7 @@ export default function CobroApp() {
       )}
 
       <footer className="mt-12 py-4 border-t border-gray-800 text-center text-xs text-gray-500">
-        Cobro &bull; Powered by Textile FX on {CELO_CHAIN_CONFIG.name} (chain {CELO_CHAIN_CONFIG.chainId}) &bull; Rates from Textile Mainnet {(CELO_CHAIN_CONFIG as any).isTestnet ? "🧪 Testnet Demo" : "Non-Custodial RFQ"}
+        Cobro &bull; Powered by Textile FX on {CELO_CHAIN_CONFIG.name} (chain {CELO_CHAIN_CONFIG.chainId}) &bull; Non-Custodial RFQ
       </footer>
     </main>
   );

@@ -25,7 +25,7 @@ router.get("/:id", (req, res) => {
 });
 // POST /api/invoices
 router.post("/", (req, res) => {
-    const { freelancerName, freelancerAddress, clientName, clientAddress, description, currency, amount, dueDate, } = req.body;
+    const { freelancerName, freelancerAddress, clientName, clientAddress, description, currency, amount, dueDate, acceptedSettlementCurrencies, } = req.body;
     if (!freelancerName || !freelancerAddress || !clientName || !description || !amount || !currency || !dueDate) {
         res.status(400).json({
             error: "Missing required fields",
@@ -38,6 +38,9 @@ router.post("/", (req, res) => {
         res.status(400).json({ error: "amount must be a positive number" });
         return;
     }
+    const settlementOptions = Array.isArray(acceptedSettlementCurrencies) && acceptedSettlementCurrencies.length > 0
+        ? acceptedSettlementCurrencies.filter((value) => value === "cNGN" || value === "USDC")
+        : [currency === "USDC" ? "USDC" : "cNGN"];
     const invoice = (0, invoiceStore_1.createInvoice)({
         freelancerName,
         freelancerAddress,
@@ -45,6 +48,7 @@ router.post("/", (req, res) => {
         clientAddress: clientAddress || "0x0000000000000000000000000000000000000000",
         description,
         currency,
+        acceptedSettlementCurrencies: settlementOptions,
         amount: parsedAmount,
         dueDate,
     });

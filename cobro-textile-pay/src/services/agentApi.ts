@@ -10,13 +10,17 @@ const BACKEND_URL =
 // ── Types ────────────────────────────────────────────────────────────────────
 
 export interface CorridorInfo {
-  corridor: "USDT" | "USDC";
-  sellTokenAddress: string;
-  sellTokenSymbol: "USDT" | "USDC";
+  settlementCurrency: "cNGN" | "USDC";
+  buyTokenAddress: string;
+  estimatedBuyAmount: string;
+  estimatedBuyAmountFormatted: string;
   estimatedSellAmount: string;
   estimatedSellAmountFormatted: string;
   effectiveRate: number;
   liveData: boolean;
+  available: boolean;
+  route: "direct";
+  reason?: string;
 }
 
 export interface AgentQuoteResponse {
@@ -24,22 +28,23 @@ export interface AgentQuoteResponse {
   invoiceAmount: string;
   invoiceCurrency: string;
   freelancerAddress: string;
-  bestCorridor: "USDT" | "USDC";
-  corridors: { USDT: CorridorInfo; USDC: CorridorInfo };
+  bestSettlementCurrency: "cNGN" | "USDC";
+  settlements: { cNGN?: CorridorInfo; USDC?: CorridorInfo };
+  acceptedSettlementCurrencies: ("cNGN" | "USDC")[];
   savings: string;
   agentAddress: string | null;
-  mode: "simulation" | "live";
+  mode: "assisted" | "unavailable";
 }
 
 export interface AgentExecuteResponse {
-  /** Present in simulation and live modes */
+  /** Present after the client wallet completes the settlement */
   success?: boolean;
   invoiceId: string;
   txHash?: string;
-  mode: "simulation" | "live" | "assisted";
+  mode: "assisted";
   celoscanUrl?: string;
   paidWith: string;
-  corridor: "USDT" | "USDC";
+  settlementCurrency: "cNGN" | "USDC";
   /** Whether the Textile API returned a real market quote */
   liveTextileQuote?: boolean;
   /** Assisted mode only — client must sign this ERC-20 approval first */
@@ -48,10 +53,11 @@ export interface AgentExecuteResponse {
   swapTx?: { to: string; data: string; value: string; chainId: number };
   sellAmount?: string;
   sellAmountFormatted?: string;
+  quoteExpiresAt?: string | null;
 }
 
 export interface AgentInfo {
-  mode: "simulation" | "live";
+  mode: "assisted" | "unavailable";
   agentAddress: string | null;
   routerAddress: string | null;
   chainId: number;
@@ -64,7 +70,8 @@ export interface BackendInvoice {
   clientName: string;
   clientAddress: string;
   description: string;
-  currency: "cNGN" | "wARS" | "wBRL";
+  currency: "cNGN" | "USDC" | "wARS" | "wBRL";
+  acceptedSettlementCurrencies?: ("cNGN" | "USDC")[];
   amount: number;
   amountFormatted: string;
   amountUnits: string;
@@ -106,7 +113,7 @@ export async function createInvoiceApi(data: {
   clientName: string;
   clientAddress: string;
   description: string;
-  currency: "cNGN" | "wARS" | "wBRL";
+  currency: "cNGN" | "USDC" | "wARS" | "wBRL";
   amount: number;
   dueDate: string;
 }): Promise<BackendInvoice> {
@@ -124,8 +131,8 @@ export async function createInvoiceApi(data: {
 }
 
 /**
- * Ask the agent to compare USDT and USDC corridors and return the best route.
- * This is the agent's core intelligence — runs both quotes in parallel.
+ * Ask the agent to compare accepted freelancer settlement currencies and
+ * return the cheapest direct USDT output route.
  */
 export async function getAgentQuote(
   invoiceId: string,
@@ -149,13 +156,13 @@ export async function getAgentQuote(
  */
 export async function executeAgentPayment(
   invoiceId: string,
-  corridor: "USDT" | "USDC",
+  settlementCurrency: "cNGN" | "USDC",
   takerAddress?: string,
 ): Promise<AgentExecuteResponse> {
   const res = await fetch(`${BACKEND_URL}/api/agent/execute`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ invoiceId, corridor, takerAddress }),
+    body: JSON.stringify({ invoiceId, settlementCurrency, takerAddress }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
