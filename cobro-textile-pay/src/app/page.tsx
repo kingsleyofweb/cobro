@@ -30,6 +30,7 @@ import {
   FileCheck,
   Printer,
   Bot,
+  Zap,
   TrendingDown,
 } from "lucide-react";
 
