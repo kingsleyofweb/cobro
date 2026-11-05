@@ -664,13 +664,9 @@
 
       <form id="createInvoiceForm" onsubmit="handleGenerateInvoice(event)" class="space-y-4 text-xs">
         <div>
-          <label class="block text-gray-300 mb-1 font-medium">Client / Company Name</label>
-          <input type="text" id="invClientName" required placeholder="e.g. Acme Labs Corp" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500">
-        </div>
-
-        <div>
-          <label class="block text-gray-300 mb-1 font-medium">Client Celo Wallet Address</label>
-          <input type="text" id="invClientAddress" required placeholder="0x..." class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white font-mono focus:outline-none focus:border-emerald-500">
+          <label class="block text-gray-300 mb-1 font-medium">Client Username</label>
+          <input type="text" id="invClientUsername" required placeholder="e.g. acmeclient" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-emerald-500">
+          <p class="text-[11px] text-gray-500 mt-1">The client must register this username before you can send the invoice.</p>
         </div>
 
         <div class="grid grid-cols-2 gap-3">
@@ -1781,8 +1777,7 @@
 
     function handleGenerateInvoice(e) {
       e.preventDefault();
-      const clientName = document.getElementById('invClientName').value.trim();
-      const clientAddress = document.getElementById('invClientAddress').value.trim();
+      const clientUsername = document.getElementById('invClientUsername').value.trim().replace(/^@/, '').toLowerCase();
       const amount = parseFloat(document.getElementById('invAmount').value);
       const currency = document.getElementById('invCurrency').value;
       const scope = document.getElementById('invScope').value.trim();
@@ -1791,8 +1786,8 @@
       const nextNum = invoices.length + 90;
       const newInvoice = {
         id: `INV-2026-${nextNum}`,
-        clientName: clientName,
-        clientAddress: clientAddress.length > 10 ? `${clientAddress.slice(0, 5)}...${clientAddress.slice(-4)}` : clientAddress,
+        clientName: `@${clientUsername}`,
+        clientUsername: clientUsername,
         freelancerName: "Amara Okonkwo",
         freelancerAddress: "0x89205A3A3b2A69De6Dbf7f01ED13B2108B2c43e7",
         scope: scope,

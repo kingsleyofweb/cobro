@@ -65,10 +65,10 @@ export interface AgentInfo {
 
 export interface BackendInvoice {
   id: string;
-  freelancerName: string;
+  freelancerUsername: string;
   freelancerAddress: string;
   clientName: string;
-  clientAddress: string;
+  clientUsername: string;
   description: string;
   currency: "cNGN" | "USDC" | "wARS" | "wBRL";
   acceptedSettlementCurrencies?: ("cNGN" | "USDC")[];
@@ -95,9 +95,10 @@ export async function getAgentInfo(): Promise<AgentInfo | null> {
 }
 
 /** Fetch all invoices from the backend store */
-export async function fetchInvoices(): Promise<BackendInvoice[] | null> {
+export async function fetchInvoices(walletAddress?: string): Promise<BackendInvoice[] | null> {
   try {
-    const res = await fetch(`${BACKEND_URL}/api/invoices`);
+    const query = walletAddress ? `?walletAddress=${encodeURIComponent(walletAddress)}` : "";
+    const res = await fetch(`${BACKEND_URL}/api/invoices${query}`);
     if (!res.ok) return null;
     const data = await res.json();
     return data.invoices ?? null;
@@ -108,10 +109,9 @@ export async function fetchInvoices(): Promise<BackendInvoice[] | null> {
 
 /** Create a new invoice on the backend */
 export async function createInvoiceApi(data: {
-  freelancerName: string;
   freelancerAddress: string;
-  clientName: string;
-  clientAddress: string;
+  freelancerUsername: string;
+  clientUsername: string;
   description: string;
   currency: "cNGN" | "USDC" | "wARS" | "wBRL";
   acceptedSettlementCurrencies?: ("cNGN" | "USDC")[];
@@ -129,6 +129,22 @@ export async function createInvoiceApi(data: {
   }
   const json = await res.json();
   return json.invoice;
+}
+
+export async function saveUserProfile(username: string, walletAddress: string, role: "client" | "freelancer") {
+  const res = await fetch(`${BACKEND_URL}/api/users/profile`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, walletAddress, role }),
+  });
+  if (!res.ok) { const err = await res.json().catch(() => ({})); throw new Error((err as any).error || "Unable to save username"); }
+  return res.json();
+}
+
+export async function fetchNotifications(walletAddress: string) {
+  const res = await fetch(`${BACKEND_URL}/api/notifications?walletAddress=${encodeURIComponent(walletAddress)}`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.notifications ?? [];
 }
 
 /**

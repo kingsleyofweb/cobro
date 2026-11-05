@@ -9,6 +9,8 @@ import {
   fetchInvoices,
   createInvoiceApi,
   confirmPayment,
+  saveUserProfile,
+  fetchNotifications,
   type AgentQuoteResponse,
 } from "../services/agentApi";
 import { 
@@ -36,9 +38,9 @@ import {
 
 interface Invoice {
   id: string;
-  clientName: string;
-  clientAddress: string;
-  freelancerName: string;
+  clientName?: string;
+  clientUsername: string;
+  freelancerUsername: string;
   freelancerAddress: string;
   description: string;
   currency: "cNGN" | "USDC" | "wARS" | "wBRL";
@@ -96,6 +98,9 @@ export default function CobroApp() {
   const [connectedAddress, setConnectedAddress] = useState<string | null>(null);
   const [chainId, setChainId] = useState<number | null>(null);
   const [tokenBalance, setTokenBalance] = useState<string>("0.00");
+  const [clientUsername, setClientUsername] = useState("");
+  const [clientUsernameSaving, setClientUsernameSaving] = useState(false);
+  const [notifications, setNotifications] = useState<any[]>([]);
   const [walletDialog, setWalletDialog] = useState<{
     title: string;
     message: string;
@@ -104,8 +109,7 @@ export default function CobroApp() {
 
   // Form State
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [formClientName, setFormClientName] = useState("");
-  const [formClientAddress, setFormClientAddress] = useState("");
+  const [formClientUsername, setFormClientUsername] = useState("");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState("");
   const [formCurrency, setFormCurrency] = useState<"cNGN" | "USDC" | "wARS" | "wBRL">("cNGN");
@@ -120,10 +124,11 @@ export default function CobroApp() {
     ? agentQuote.settlements[bestCorridor]?.estimatedSellAmountFormatted ?? "Unavailable"
     : "Unavailable";
 
-  // Fetch persisted invoices from backend on mount
+  // Fetch only invoices belonging to the connected wallet.
   useEffect(() => {
+    if (!connectedAddress) { setInvoices([]); setInvoicesLoading(false); return; }
     setInvoicesLoading(true);
-    fetchInvoices()
+    fetchInvoices(connectedAddress)
       .then((data) => {
         if (data) {
           setInvoices(data as any);
@@ -135,7 +140,16 @@ export default function CobroApp() {
       })
       .catch(() => setInvoicesError("Unable to load invoices from the backend."))
       .finally(() => setInvoicesLoading(false));
-  }, []);
+  }, [connectedAddress]);
+
+  // Poll wallet-scoped notifications while the client dashboard is open.
+  useEffect(() => {
+    if (role !== "client" || !connectedAddress) return;
+    const poll = () => fetchNotifications(connectedAddress).then(setNotifications).catch(() => undefined);
+    poll();
+    const timer = setInterval(poll, 10000);
+    return () => clearInterval(timer);
+  }, [role, connectedAddress]);
 
   // Fetch agent quote preview whenever the client view opens or invoice changes
   useEffect(() => {
@@ -220,6 +234,18 @@ export default function CobroApp() {
     setRole(nextRole);
   };
 
+  const registerClientUsername = async () => {
+    if (!connectedAddress || !clientUsername.trim()) return;
+    setClientUsernameSaving(true);
+    try {
+      await saveUserProfile(clientUsername, connectedAddress, "client");
+      setClientUsername(clientUsername.trim().replace(/^@/, "").toLowerCase());
+      setWalletDialog(null);
+    } catch (error) {
+      showWalletDialog("Username unavailable", error instanceof Error ? error.message : "Unable to save username");
+    } finally { setClientUsernameSaving(false); }
+  };
+
   const switchToCelo = async () => {
     if (typeof window === "undefined" || !(window as any).ethereum) return;
     const hexChainId = "0x" + CELO_CHAIN_CONFIG.chainId.toString(16);
@@ -294,16 +320,15 @@ export default function CobroApp() {
   // Handle Invoice Creation — backend persistence is required.
   const handleGenerateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formClientName || !formAmount || !formDescription) return;
+    if (!formClientUsername || !formAmount || !formDescription) return;
 
     const numAmount = parseFloat(formAmount);
 
     try {
       const saved = await createInvoiceApi({
-        freelancerName: freelancerProfile?.displayName || "Freelancer",
         freelancerAddress: connectedAddress || profileWallet,
-        clientName: formClientName,
-        clientAddress: formClientAddress,
+        freelancerUsername: freelancerProfile?.username || "freelancer",
+        clientUsername: formClientUsername,
         description: formDescription,
         currency: formCurrency,
         acceptedSettlementCurrencies: formCurrency === "cNGN" && acceptUsdcSettlement ? ["cNGN", "USDC"] : [formCurrency as "cNGN" | "USDC"],
@@ -318,7 +343,7 @@ export default function CobroApp() {
     }
 
     setShowCreateModal(false);
-    setFormClientName("");
+    setFormClientUsername("");
     setFormDescription("");
     setFormAmount("");
   };
@@ -621,7 +646,7 @@ export default function CobroApp() {
                   ) : invoices.map(inv => (
                     <tr key={inv.id} className="hover:bg-gray-950/40 transition">
                       <td className="px-6 py-4 font-mono font-bold text-white">{inv.id}</td>
-                      <td className="px-6 py-4 text-gray-300">{inv.clientName}</td>
+                      <td className="px-6 py-4 text-gray-300">@{inv.clientUsername}</td>
                       <td className="px-6 py-4 text-gray-400 max-w-xs truncate">{inv.description}</td>
                       <td className="px-6 py-4 font-bold text-white">₦{inv.amountFormatted} <span className="text-[10px] text-celo-green">{inv.currency}</span></td>
                       <td className="px-6 py-4 text-gray-400">{inv.dueDate}</td>
@@ -664,6 +689,40 @@ export default function CobroApp() {
                 </tbody>
               </table>
             </div>
+          </div>
+        </section>
+      )}
+
+      {role === "client" && connectedAddress && !clientUsername && (
+        <section className="mb-6 max-w-lg mx-auto bg-gray-900 border border-gray-800 rounded-2xl p-6 space-y-4">
+          <div>
+            <h2 className="text-lg font-bold text-white">Choose your Cobro username</h2>
+            <p className="text-xs text-gray-400 mt-1">Freelancers use this username to send you invoice notifications.</p>
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={clientUsername}
+              onChange={e => setClientUsername(e.target.value.replace(/^@/, "").replace(/[^a-zA-Z0-9_-]/g, ""))}
+              placeholder="yourusername"
+              className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-2.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-celo-green"
+            />
+            <button onClick={registerClientUsername} disabled={clientUsernameSaving || !clientUsername.trim()} className="px-4 py-2.5 bg-celo-green text-black font-bold rounded-lg text-xs disabled:opacity-50">
+              {clientUsernameSaving ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </section>
+      )}
+
+      {role === "client" && clientUsername && notifications.length > 0 && (
+        <section className="mb-6 bg-indigo-950/30 border border-indigo-500/30 rounded-2xl p-5">
+          <h3 className="text-xs font-bold text-indigo-300 uppercase tracking-wider mb-3">Notifications</h3>
+          <div className="space-y-2">
+            {notifications.map(notification => (
+              <div key={notification.id} className="flex items-center justify-between gap-3 text-sm">
+                <div><p className="text-white font-semibold">{notification.title}</p><p className="text-xs text-gray-400">{notification.message}</p></div>
+                {notification.invoice_id && <span className="font-mono text-xs text-indigo-300">{notification.invoice_id}</span>}
+              </div>
+            ))}
           </div>
         </section>
       )}
@@ -735,7 +794,7 @@ export default function CobroApp() {
                 <div className="space-y-4 text-xs">
                   <div>
                     <p className="text-gray-400">Freelancer (Beneficiary)</p>
-                    <p className="font-semibold text-white text-sm">{activeInvoice.freelancerName}</p>
+                    <p className="font-semibold text-white text-sm">@{activeInvoice.freelancerUsername}</p>
                     <p className="text-gray-500 font-mono truncate">{activeInvoice.freelancerAddress}</p>
                   </div>
 
@@ -1196,26 +1255,16 @@ export default function CobroApp() {
 
             <form onSubmit={handleGenerateInvoice} className="space-y-4 text-xs">
               <div>
-                <label className="block text-gray-300 mb-1 font-medium">Client / Company Name</label>
+                <label className="block text-gray-300 mb-1 font-medium">Client Username</label>
                 <input 
                   type="text" 
                   required 
-                  value={formClientName}
-                  onChange={e => setFormClientName(e.target.value)}
-                  placeholder="e.g. Acme Web3 Labs" 
+                  value={formClientUsername}
+                  onChange={e => setFormClientUsername(e.target.value.replace(/^@/, ""))}
+                  placeholder="e.g. acmeclient"
                   className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-white placeholder-gray-600 focus:outline-none focus:border-celo-green"
                 />
-              </div>
-
-              <div>
-                <label className="block text-gray-300 mb-1 font-medium">Client Wallet Address</label>
-                <input 
-                  type="text" 
-                  required 
-                  value={formClientAddress}
-                  onChange={e => setFormClientAddress(e.target.value)}
-                  className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-white font-mono placeholder-gray-600 focus:outline-none focus:border-celo-green"
-                />
+                <p className="text-[11px] text-gray-500 mt-1">The client must register this username before you can send the invoice.</p>
               </div>
 
               <div>
@@ -1383,7 +1432,7 @@ export default function CobroApp() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400">Payer (Client Wallet):</span>
-                  <span className="font-mono text-gray-300 truncate max-w-[200px]">{connectedAddress || activeInvoice.clientAddress}</span>
+                  <span className="font-mono text-gray-300 truncate max-w-[200px]">{connectedAddress || `@${activeInvoice.clientUsername}`}</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-gray-400">Settled via:</span>
